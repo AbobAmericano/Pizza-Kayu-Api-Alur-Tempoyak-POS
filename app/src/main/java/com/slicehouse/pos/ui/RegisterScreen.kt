@@ -70,7 +70,8 @@ import com.slicehouse.pos.data.Category
 import com.slicehouse.pos.data.MenuItem
 import com.slicehouse.pos.data.OrderType
 import com.slicehouse.pos.data.PosState
-import com.slicehouse.pos.data.PosStore
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.slicehouse.pos.data.SampleData
 import com.slicehouse.pos.data.money
 import com.slicehouse.pos.data.percentLabel
@@ -79,27 +80,27 @@ import com.slicehouse.pos.data.itemCountLabel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RegisterScreen(
-    state: PosState,
-    store: PosStore,
     wide: Boolean,
-    onCheckout: () -> Unit
+    onCheckout: () -> Unit,
+    viewModel: RegisterViewModel = viewModel(factory = PosViewModelFactory)
 ) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
     var sheetOpen by rememberSaveable { mutableStateOf(false) }
 
     if (wide) {
         Row(Modifier.fillMaxSize()) {
-            MenuBrowser(state, store, Modifier.weight(1f).fillMaxHeight())
+            MenuBrowser(state, viewModel, Modifier.weight(1f).fillMaxHeight())
             Surface(
                 modifier = Modifier.width(410.dp).fillMaxHeight(),
                 color = MaterialTheme.colorScheme.surfaceContainerLow,
                 contentColor = MaterialTheme.colorScheme.onSurface
             ) {
-                CartPanel(state, store, onCheckout, Modifier.fillMaxSize())
+                CartPanel(state, viewModel, onCheckout, Modifier.fillMaxSize())
             }
         }
     } else {
         Column(Modifier.fillMaxSize()) {
-            MenuBrowser(state, store, Modifier.weight(1f).fillMaxWidth())
+            MenuBrowser(state, viewModel, Modifier.weight(1f).fillMaxWidth())
             if (state.cart.isNotEmpty()) {
                 CompactCartBar(state) { sheetOpen = true }
             }
@@ -113,7 +114,7 @@ fun RegisterScreen(
             ) {
                 CartPanel(
                     state = state,
-                    store = store,
+                    viewModel = viewModel,
                     onCheckout = {
                         sheetOpen = false
                         onCheckout()
@@ -129,7 +130,7 @@ fun RegisterScreen(
 }
 
 @Composable
-private fun MenuBrowser(state: PosState, store: PosStore, modifier: Modifier = Modifier) {
+private fun MenuBrowser(state: PosState, viewModel: RegisterViewModel, modifier: Modifier = Modifier) {
     var selectedCategory by rememberSaveable { mutableStateOf(Category.PIZZA) }
     var query by rememberSaveable { mutableStateOf("") }
     var pizzaItem by remember { mutableStateOf<MenuItem?>(null) }
@@ -222,15 +223,7 @@ private fun MenuBrowser(state: PosState, store: PosStore, modifier: Modifier = M
         Spacer(Modifier.height(6.dp))
 
         val filtered = remember(state.menu, selectedCategory, query) {
-            val base = state.menu.filter { it.available }
-            if (query.isNotBlank()) {
-                base.filter {
-                    it.name.contains(query, ignoreCase = true) ||
-                        it.description.contains(query, ignoreCase = true)
-                }
-            } else {
-                base.filter { it.category == selectedCategory }
-            }
+            RegisterViewModel.filterMenu(state.menu, selectedCategory, query)
         }
 
         if (filtered.isEmpty()) {
@@ -253,7 +246,7 @@ private fun MenuBrowser(state: PosState, store: PosStore, modifier: Modifier = M
                         if (item.isPizza) {
                             pizzaItem = item
                         } else {
-                            store.addLine(
+                            viewModel.addLine(
                                 CartLine(
                                     lineId = "",
                                     itemId = item.id,
@@ -278,7 +271,7 @@ private fun MenuBrowser(state: PosState, store: PosStore, modifier: Modifier = M
             currency = state.settings.currency,
             onDismiss = { pizzaItem = null },
             onAdd = { line ->
-                store.addLine(line)
+                viewModel.addLine(line)
                 pizzaItem = null
             }
         )
@@ -328,7 +321,7 @@ private fun CompactCartBar(state: PosState, onOpen: () -> Unit) {
 @Composable
 fun CartPanel(
     state: PosState,
-    store: PosStore,
+    viewModel: RegisterViewModel,
     onCheckout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -337,7 +330,7 @@ fun CartPanel(
             Text("Current order", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
             if (state.cart.isNotEmpty()) {
-                TextButton(onClick = { store.clearCart() }) {
+                TextButton(onClick = { viewModel.clearCart() }) {
                     Icon(Icons.Rounded.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Clear")
@@ -346,28 +339,28 @@ fun CartPanel(
         }
 
         Spacer(Modifier.height(12.dp))
-        OrderTypeSelector(state.orderType) { store.setOrderType(it) }
+        OrderTypeSelector(state.orderType) { viewModel.setOrderType(it) }
         Spacer(Modifier.height(10.dp))
 
         when (state.orderType) {
             OrderType.DINE_IN -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                CartField("Table number", state.table, store::setTable)
-                CartField("Phone number (optional)", state.customerPhone, store::setCustomerPhone, KeyboardType.Phone)
+                CartField("Table number", state.table, viewModel::setTable)
+                CartField("Phone number (optional)", state.customerPhone, viewModel::setCustomerPhone, KeyboardType.Phone)
             }
             OrderType.TAKEAWAY -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                CartField("Customer name (optional)", state.customerName, store::setCustomerName)
-                CartField("Phone number (optional)", state.customerPhone, store::setCustomerPhone, KeyboardType.Phone)
+                CartField("Customer name (optional)", state.customerName, viewModel::setCustomerName)
+                CartField("Phone number (optional)", state.customerPhone, viewModel::setCustomerPhone, KeyboardType.Phone)
             }
             OrderType.DELIVERY -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                CartField("Customer name", state.customerName, store::setCustomerName)
-                CartField("Phone number", state.customerPhone, store::setCustomerPhone, KeyboardType.Phone)
-                CartField("Delivery address", state.address, store::setAddress)
+                CartField("Customer name", state.customerName, viewModel::setCustomerName)
+                CartField("Phone number", state.customerPhone, viewModel::setCustomerPhone, KeyboardType.Phone)
+                CartField("Delivery address", state.address, viewModel::setAddress)
             }
         }
 
         if (state.orderType != OrderType.DINE_IN) {
             Spacer(Modifier.height(8.dp))
-            CartField("Pickup time", state.pickupTime, store::setPickupTime)
+            CartField("Pickup time", state.pickupTime, viewModel::setPickupTime)
         }
 
         Spacer(Modifier.height(8.dp))
@@ -391,8 +384,8 @@ fun CartPanel(
                     CartLineRow(
                         line = line,
                         currency = state.settings.currency,
-                        onMinus = { store.changeQty(line.lineId, -1) },
-                        onPlus = { store.changeQty(line.lineId, 1) }
+                        onMinus = { viewModel.changeQty(line.lineId, -1) },
+                        onPlus = { viewModel.changeQty(line.lineId, 1) }
                     )
                 }
             }

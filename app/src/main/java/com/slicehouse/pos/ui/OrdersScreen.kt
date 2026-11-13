@@ -50,40 +50,24 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.slicehouse.pos.data.Order
 import com.slicehouse.pos.data.OrderStatus
-import com.slicehouse.pos.data.PosState
-import com.slicehouse.pos.data.PosStore
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.slicehouse.pos.data.Settings
 import com.slicehouse.pos.data.formatClock
 import com.slicehouse.pos.data.itemCountLabel
 import com.slicehouse.pos.data.money
-import java.util.Calendar
 
 @Composable
 fun OrdersScreen(
-    state: PosState,
-    store: PosStore,
-    onGoToRegister: () -> Unit
+    onGoToRegister: () -> Unit,
+    viewModel: OrdersViewModel = viewModel(factory = PosViewModelFactory)
 ) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
     var showAll by rememberSaveable { mutableStateOf(false) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
 
-    val startOfToday = remember {
-        Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
-    }
-
-    val todayOrders = remember(state.orders, startOfToday) {
-        state.orders.filter { it.createdAt >= startOfToday }
-    }
+    val todayOrders = state.todayOrders
     val visible = if (showAll) state.orders else todayOrders
-    val salesToday = todayOrders.filter { it.status == OrderStatus.COMPLETED }.sumOf { it.total }
-    val completedToday = todayOrders.count { it.status == OrderStatus.COMPLETED }.coerceAtLeast(1)
-    // Rounded half up to the sen, so RM72.47 over 2 orders shows RM36.24.
-    val avgTicket = if (todayOrders.isEmpty()) 0L else (salesToday + completedToday / 2) / completedToday
 
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 20.dp)) {
@@ -98,19 +82,19 @@ fun OrdersScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StatCard(
                     label = "Sales today",
-                    value = money(salesToday, state.settings.currency),
+                    value = money(state.salesToday, state.settings.currency),
                     emoji = "💰",
                     modifier = Modifier.weight(1f)
                 )
                 StatCard(
                     label = "Orders today",
-                    value = todayOrders.size.toString(),
+                    value = state.completedToday.toString(),
                     emoji = "🧾",
                     modifier = Modifier.weight(1f)
                 )
                 StatCard(
                     label = "Avg ticket",
-                    value = money(avgTicket, state.settings.currency),
+                    value = money(state.avgTicket, state.settings.currency),
                     emoji = "📈",
                     modifier = Modifier.weight(1f)
                 )
@@ -161,11 +145,11 @@ fun OrdersScreen(
                 settings = state.settings,
                 onDismiss = { selectedId = null },
                 onReorder = {
-                    store.reorder(live)
+                    viewModel.reorder(live)
                     selectedId = null
                     onGoToRegister()
                 },
-                onRefund = { store.refund(live.id) }
+                onRefund = { viewModel.refund(live.id) }
             )
         } else {
             selectedId = null
