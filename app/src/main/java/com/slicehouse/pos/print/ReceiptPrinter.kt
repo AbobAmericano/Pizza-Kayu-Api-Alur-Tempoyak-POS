@@ -62,7 +62,7 @@ object ReceiptPrinter {
             order.payment.label,
             money(if (order.payment.name == "CASH") order.cashReceived else order.total, settings.currency)
         )
-        if (order.payment.name == "CASH" && order.change > 0.0) {
+        if (order.payment.name == "CASH" && order.change > 0) {
             builder.twoColumns("Change", money(order.change, settings.currency))
         }
         if (order.note.isNotBlank()) {

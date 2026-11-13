@@ -358,7 +358,7 @@ fun ReceiptBody(order: Order, settings: Settings, modifier: Modifier = Modifier)
         HorizontalDivider()
         Spacer(Modifier.height(8.dp))
         ReceiptRow(order.payment.label, money(if (order.payment.name == "CASH") order.cashReceived else order.total, settings.currency), mono = true)
-        if (order.payment.name == "CASH" && order.change > 0.0) {
+        if (order.payment.name == "CASH" && order.change > 0) {
             ReceiptRow("Change", money(order.change, settings.currency), mono = true)
         }
         if (order.note.isNotBlank()) {
@@ -418,7 +418,7 @@ fun buildReceiptText(order: Order, settings: Settings): String = buildString {
     appendLine("Tax       ${money(order.tax, settings.currency)}")
     appendLine("TOTAL     ${money(order.total, settings.currency)}")
     appendLine("Paid by ${order.payment.label}")
-    if (order.payment.name == "CASH" && order.change > 0.0) {
+    if (order.payment.name == "CASH" && order.change > 0) {
         appendLine("Change    ${money(order.change, settings.currency)}")
     }
     if (settings.instagram.isNotBlank()) appendLine("Instagram: ${instagramHandle(settings.instagram)}")

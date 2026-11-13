@@ -25,7 +25,7 @@ Kotlin and Jetpack Compose.
   a clean slate.
 - **Adaptive layout** – on a phone the cart slides up as a bottom sheet with bottom navigation; on a
   tablet you get a navigation rail and a permanent cart panel.
-- **Offline first** – no internet permission. Everything is stored in a JSON file on the device.
+- **Offline first** – no internet permission. Everything is stored in a local database on the device.
 
 Pizza sizes are 10" (RM20), 11" (RM25) and 12" (RM30). Only 4in1, Beef Pepperoni, Chicken Pepperoni,
 Smoke Beef and Smoke Duck come in 12", with Smoke Beef and Smoke Duck at RM40. Extra cheese is RM3.
@@ -95,8 +95,11 @@ app/src/main/java/com/slicehouse/pos/
   PosApplication.kt        Keeps the store alive across rotation
   data/
     Models.kt              Menu, cart, order, settings and theme models
+    Money.kt               Money in whole sen (Long), tax and price parsing
     SampleData.kt          Seed menu, sizes, crusts and toppings
-    PosStore.kt            State + JSON persistence
+    PosStore.kt            App state; saves every change to the database in order
+    LegacyImport.kt        One-time import of the v1.4 JSON file
+    db/                    Room database: tables, queries and converters
   print/
     BluetoothPrinter.kt    Bluetooth SPP connection to the thermal printer
     ReceiptPrinter.kt      ESC/POS receipt builder for 58/80 mm paper
@@ -118,8 +121,14 @@ app/src/main/java/com/slicehouse/pos/
 ## Data & privacy
 
 The app requests Bluetooth permissions for the receipt printer and no internet permission. Orders,
-the menu and settings live in `slicehouse_pos.json` inside the app's private storage. Uninstalling
-the app removes them, so back up the device if the data matters.
+the menu and settings live in a Room (SQLite) database, `pizza_pos.db`, inside the app's private
+storage. Each save is all-or-nothing, so a crash or power cut can't leave half an order behind.
+Money is stored as whole sen, so totals never drift. Uninstalling the app removes the data, so back
+up the device if it matters.
+
+Upgrading from v1.4: on first launch the app imports the old `slicehouse_pos.json` and renames it to
+`slicehouse_pos.imported.json` (it is never deleted). If the old file can't be read, it is left
+untouched and the app shows a message instead of silently starting empty.
 
 ## Default menu
 

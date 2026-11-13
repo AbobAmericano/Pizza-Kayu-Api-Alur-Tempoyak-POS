@@ -69,7 +69,8 @@ import com.slicehouse.pos.data.PosStore
 import com.slicehouse.pos.data.Topping
 import com.slicehouse.pos.data.itemCountLabel
 import com.slicehouse.pos.data.money
-import com.slicehouse.pos.data.round2
+import com.slicehouse.pos.data.moneyInput
+import com.slicehouse.pos.data.parseMoney
 import java.util.UUID
 
 @Composable
@@ -105,7 +106,7 @@ fun MenuScreen(state: PosState, store: PosStore) {
                             id = UUID.randomUUID().toString(),
                             name = "",
                             category = Category.PIZZA,
-                            price = 0.0,
+                            price = 0,
                             isPizza = true,
                             emoji = "🍕"
                         )
@@ -198,7 +199,7 @@ fun MenuScreen(state: PosState, store: PosStore) {
             onDismiss = { showToppings = false },
             onEdit = { toppingDraft = it },
             onAdd = {
-                toppingDraft = Topping(id = UUID.randomUUID().toString(), label = "", price = 1.0)
+                toppingDraft = Topping(id = UUID.randomUUID().toString(), label = "", price = 100)
             }
         )
     }
@@ -294,16 +295,16 @@ private fun MenuItemEditor(
     var emoji by remember { mutableStateOf(initial.emoji) }
     var description by remember { mutableStateOf(initial.description) }
     var imageKey by remember { mutableStateOf(initial.imageKey) }
-    var priceText by remember { mutableStateOf(if (initial.price > 0) trimNumber(initial.price) else "") }
+    var priceText by remember { mutableStateOf(if (initial.price > 0) moneyInput(initial.price) else "") }
     var category by remember { mutableStateOf(initial.category) }
     var isPizza by remember { mutableStateOf(initial.isPizza) }
     var available by remember { mutableStateOf(initial.available) }
     var twelveInch by remember { mutableStateOf(initial.twelveInchAvailable) }
-    var price12Text by remember { mutableStateOf(if (initial.twelveInchAvailable) trimNumber(initial.price + initial.twelveInchDelta) else "") }
+    var price12Text by remember { mutableStateOf(if (initial.twelveInchAvailable) moneyInput(initial.price + initial.twelveInchDelta) else "") }
     var confirmDelete by remember { mutableStateOf(false) }
 
-    val price = priceText.toDoubleOrNull()
-    val price12 = price12Text.toDoubleOrNull()
+    val price = parseMoney(priceText)
+    val price12 = parseMoney(price12Text)
     val valid = name.isNotBlank() && price != null && price > 0
 
     Dialog(
@@ -524,13 +525,13 @@ private fun MenuItemEditor(
                                         name = name.trim(),
                                         emoji = emoji.ifBlank { "🍕" },
                                         description = description.trim(),
-                                        price = price ?: 0.0,
+                                        price = price ?: 0L,
                                         category = category,
                                         isPizza = isPizza,
                                         available = available,
                                         imageKey = imageKey,
                                         twelveInchAvailable = if (isPizza) twelveInch else false,
-                                        twelveInchDelta = if (twelveInch && price12 != null) round2(price12 - (price ?: 0.0)) else initial.twelveInchDelta
+                                        twelveInchDelta = if (twelveInch && price12 != null) price12 - (price ?: 0L) else initial.twelveInchDelta
                                     )
                                 )
                             },
@@ -665,8 +666,8 @@ private fun ToppingEditor(
 ) {
     var label by remember { mutableStateOf(initial.label) }
     var emoji by remember { mutableStateOf(initial.emoji) }
-    var priceText by remember { mutableStateOf(trimNumber(initial.price)) }
-    val price = priceText.toDoubleOrNull()
+    var priceText by remember { mutableStateOf(moneyInput(initial.price)) }
+    val price = parseMoney(priceText)
     val valid = label.isNotBlank() && price != null && price >= 0
 
     Dialog(
@@ -737,7 +738,7 @@ private fun ToppingEditor(
                                     initial.copy(
                                         label = label.trim(),
                                         emoji = emoji.ifBlank { "🍕" },
-                                        price = price ?: 0.0
+                                        price = price ?: 0L
                                     )
                                 )
                             },
