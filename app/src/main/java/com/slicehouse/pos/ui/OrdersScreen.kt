@@ -65,6 +65,7 @@ fun OrdersScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showAll by rememberSaveable { mutableStateOf(false) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    val gate = rememberOwnerGate()
 
     val todayOrders = state.todayOrders
     val visible = if (showAll) state.orders else todayOrders
@@ -149,7 +150,7 @@ fun OrdersScreen(
                     selectedId = null
                     onGoToRegister()
                 },
-                onRefund = { viewModel.refund(live.id) }
+                onRefund = { gate.require { owner -> viewModel.refund(live.id, owner.name) } }
             )
         } else {
             selectedId = null

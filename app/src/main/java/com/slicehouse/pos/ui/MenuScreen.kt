@@ -79,6 +79,8 @@ fun MenuScreen(viewModel: MenuViewModel = viewModel(factory = PosViewModelFactor
     var itemDraft by remember { mutableStateOf<MenuItem?>(null) }
     var toppingDraft by remember { mutableStateOf<Topping?>(null) }
     var showToppings by remember { mutableStateOf(false) }
+    // Prices, new items and toppings need the owner; marking sold out doesn't.
+    val gate = rememberOwnerGate()
 
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 20.dp)) {
@@ -97,20 +99,22 @@ fun MenuScreen(viewModel: MenuViewModel = viewModel(factory = PosViewModelFactor
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 OutlinedButton(
-                    onClick = { showToppings = true },
+                    onClick = { gate.require { showToppings = true } },
                     shape = RoundedCornerShape(14.dp)
                 ) { Text("Toppings") }
                 Spacer(Modifier.width(8.dp))
                 Button(
                     onClick = {
-                        itemDraft = MenuItem(
-                            id = UUID.randomUUID().toString(),
-                            name = "",
-                            category = Category.PIZZA,
-                            price = 0,
-                            isPizza = true,
-                            emoji = "🍕"
-                        )
+                        gate.require {
+                            itemDraft = MenuItem(
+                                id = UUID.randomUUID().toString(),
+                                name = "",
+                                category = Category.PIZZA,
+                                price = 0,
+                                isPizza = true,
+                                emoji = "🍕"
+                            )
+                        }
                     },
                     shape = RoundedCornerShape(14.dp)
                 ) {
@@ -160,7 +164,7 @@ fun MenuScreen(viewModel: MenuViewModel = viewModel(factory = PosViewModelFactor
                             item = menuItem,
                             currency = state.settings.currency,
                             onToggle = { viewModel.toggleAvailable(menuItem.id) },
-                            onEdit = { itemDraft = menuItem }
+                            onEdit = { gate.require { itemDraft = menuItem } }
                         )
                     }
                 }

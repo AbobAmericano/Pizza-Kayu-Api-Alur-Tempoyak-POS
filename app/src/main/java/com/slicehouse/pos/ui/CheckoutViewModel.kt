@@ -33,7 +33,11 @@ data class CheckoutUiState(
 }
 
 /** Taking payment for the current cart. */
-class CheckoutViewModel(private val store: PosStore) : ViewModel() {
+class CheckoutViewModel(
+    private val store: PosStore,
+    /** Name of whoever is signed in; saved on the order. */
+    private val takenBy: () -> String = { "" }
+) : ViewModel() {
 
     private val method = MutableStateFlow(PaymentMethod.CARD)
     private val cashText = MutableStateFlow("")
@@ -53,7 +57,7 @@ class CheckoutViewModel(private val store: PosStore) : ViewModel() {
     fun pay(): Order? {
         val current = state.value
         if (!current.canPay) return null
-        return store.completeOrder(current.method, current.cash)?.also { reset() }
+        return store.completeOrder(current.method, current.cash, takenBy())?.also { reset() }
     }
 
     /** Clears the payment form, e.g. when leaving checkout. */

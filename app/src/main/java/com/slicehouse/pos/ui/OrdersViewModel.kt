@@ -48,7 +48,8 @@ class OrdersViewModel(
         ordersState(pos, startOfDay(time, zone))
     }.stateIn(viewModelScope, SharingStarted.Eagerly, ordersState(store.state.value, startOfDay(clock(), zone)))
 
-    fun refund(orderId: String) = store.refund(orderId)
+    /** Refunds an order; [approvedBy] is the owner whose PIN approved it. */
+    fun refund(orderId: String, approvedBy: String) = store.refund(orderId, approvedBy)
 
     fun reorder(order: Order) = store.reorder(order)
 

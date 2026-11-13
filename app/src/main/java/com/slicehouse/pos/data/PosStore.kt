@@ -1,9 +1,7 @@
 package com.slicehouse.pos.data
 
-import android.content.Context
 import com.slicehouse.pos.data.db.MetaEntity
 import com.slicehouse.pos.data.db.PosDao
-import com.slicehouse.pos.data.db.PosDatabase
 import com.slicehouse.pos.data.db.lineEntities
 import com.slicehouse.pos.data.db.toEntity
 import com.slicehouse.pos.data.db.toMenuEntities
@@ -13,7 +11,6 @@ import com.slicehouse.pos.data.db.toToppingEntities
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -71,7 +68,7 @@ data class PosState(
     }
 
     /** The paid order the current cart becomes, or null if the cart is empty. */
-    fun buildOrder(payment: PaymentMethod, cashReceived: Sen, id: String, now: Long): Order? {
+    fun buildOrder(payment: PaymentMethod, cashReceived: Sen, id: String, now: Long, takenBy: String = ""): Order? {
         if (cart.isEmpty()) return null
         val received = if (payment == PaymentMethod.CASH) cashReceived else total
         return Order(
@@ -91,7 +88,8 @@ data class PosState(
             payment = payment,
             cashReceived = received,
             change = (received - total).coerceAtLeast(0),
-            note = orderNote
+            note = orderNote,
+            takenBy = takenBy
         )
     }
 
@@ -117,18 +115,12 @@ data class PosState(
  * straight away, then the matching database write is queued and run in order on
  * a background thread. A failed write shows a warning instead of being ignored.
  */
-class PosStore internal constructor(
+class PosStore(
     private val dao: PosDao,
     private val filesDir: File,
     scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
-
-    constructor(context: Context) : this(
-        dao = PosDatabase.open(context).dao(),
-        filesDir = context.filesDir,
-        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    )
 
     private val _state = MutableStateFlow(PosState())
     val state: StateFlow<PosState> = _state.asStateFlow()
@@ -197,8 +189,8 @@ class PosStore internal constructor(
     fun setPickupTime(value: String) = _state.update { it.copy(pickupTime = value) }
 
     /** Converts the current cart into a paid order and clears the register. */
-    fun completeOrder(payment: PaymentMethod, cashReceived: Sen): Order? {
-        val order = _state.value.buildOrder(payment, cashReceived, UUID.randomUUID().toString(), clock())
+    fun completeOrder(payment: PaymentMethod, cashReceived: Sen, takenBy: String = ""): Order? {
+        val order = _state.value.buildOrder(payment, cashReceived, UUID.randomUUID().toString(), clock(), takenBy)
             ?: return null
         val next = order.number + 1
         _state.update {
@@ -208,14 +200,15 @@ class PosStore internal constructor(
         return order
     }
 
-    fun refund(orderId: String) {
+    /** Marks an order refunded. [approvedBy] is the owner who approved it. */
+    fun refund(orderId: String, approvedBy: String? = null) {
         val now = clock()
         _state.update { state ->
             state.copy(orders = state.orders.map {
-                if (it.id == orderId) it.copy(status = OrderStatus.REFUNDED, refundedAt = now) else it
+                if (it.id == orderId) it.copy(status = OrderStatus.REFUNDED, refundedAt = now, refundedBy = approvedBy) else it
             })
         }
-        enqueue { dao.setOrderStatus(orderId, OrderStatus.REFUNDED, now) }
+        enqueue { dao.setOrderStatus(orderId, OrderStatus.REFUNDED, now, approvedBy) }
     }
 
     fun reorder(order: Order) {
