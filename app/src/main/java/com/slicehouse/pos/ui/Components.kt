@@ -316,6 +316,8 @@ fun ReceiptBody(order: Order, settings: Settings, modifier: Modifier = Modifier)
         if (order.customerName.isNotBlank()) ReceiptRow("Customer", order.customerName)
         if (order.customerPhone.isNotBlank()) ReceiptRow("Phone", order.customerPhone)
         if (order.address.isNotBlank()) ReceiptRow("Address", order.address)
+        if (order.takenBy.isNotBlank()) ReceiptRow("Staff", order.takenBy)
+        order.refundedBy?.let { ReceiptRow("Refund approved by", it) }
         Spacer(Modifier.height(8.dp))
         HorizontalDivider()
         Spacer(Modifier.height(10.dp))

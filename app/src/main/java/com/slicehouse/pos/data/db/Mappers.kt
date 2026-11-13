@@ -101,7 +101,9 @@ fun Order.toEntity() = OrderEntity(
     status = status,
     note = note,
     pickupTime = pickupTime,
-    refundedAt = refundedAt
+    refundedAt = refundedAt,
+    takenBy = takenBy,
+    refundedBy = refundedBy
 )
 
 fun Order.lineEntities() = lines.mapIndexed { index, line ->
@@ -157,7 +159,9 @@ fun toOrders(orders: List<OrderEntity>, lines: List<OrderLineEntity>): List<Orde
             status = row.status,
             note = row.note,
             pickupTime = row.pickupTime,
-            refundedAt = row.refundedAt
+            refundedAt = row.refundedAt,
+            takenBy = row.takenBy,
+            refundedBy = row.refundedBy
         )
     }
 }

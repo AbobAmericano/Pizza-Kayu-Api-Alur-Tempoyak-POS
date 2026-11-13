@@ -62,6 +62,12 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
+
+    // Lets the database upgrade test read every saved schema version. Robolectric
+    // reads the debug build's assets, so only debug APKs carry these few KB.
+    sourceSets {
+        getByName("debug").assets.srcDir("$projectDir/schemas")
+    }
 }
 
 dependencies {
@@ -93,5 +99,6 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("androidx.test:core-ktx:1.6.1")
+    testImplementation("androidx.room:room-testing:$roomVersion")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
 }

@@ -139,7 +139,11 @@ data class Order(
     /** Pickup / ready time chosen on the register, e.g. "12:30" or "ASAP". */
     val pickupTime: String = "",
     /** When the order was marked refunded, or null. */
-    val refundedAt: Long? = null
+    val refundedAt: Long? = null,
+    /** Staff member who took the order. Empty for orders from before staff PINs. */
+    val takenBy: String = "",
+    /** Owner who approved the refund, or null. */
+    val refundedBy: String? = null
 ) {
     val itemCount: Int get() = lines.sumOf { it.qty }
 }

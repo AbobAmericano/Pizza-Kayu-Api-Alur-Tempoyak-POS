@@ -89,8 +89,8 @@ class PosStoreTest {
     fun refundAndMenuChangesArePersisted() {
         val store = openStore()
         store.addLine(CartLine("", "d1", "Coca-Cola", "C", unitPrice = 250, qty = 1))
-        val order = store.completeOrder(PaymentMethod.CARD, 0)!!
-        store.refund(order.id)
+        val order = store.completeOrder(PaymentMethod.CARD, 0, takenBy = "Aina")!!
+        store.refund(order.id, approvedBy = "Nasran")
         store.saveMenuItem(SampleData.menu.first().copy(price = 2200))
         store.deleteMenuItem("x4")
         store.updateSettings(store.state.value.settings.copy(taxBasisPoints = 600))
@@ -99,6 +99,8 @@ class PosStoreTest {
         val reopened = openStore().state.value
         assertEquals(OrderStatus.REFUNDED, reopened.orders.single().status)
         assertNotNull(reopened.orders.single().refundedAt)
+        assertEquals("Aina", reopened.orders.single().takenBy)
+        assertEquals("Nasran", reopened.orders.single().refundedBy)
         assertEquals(2200L, reopened.menu.first().price)
         assertFalse(reopened.menu.any { it.id == "x4" })
         assertEquals(SampleData.menu.map { it.id } - "x4", reopened.menu.map { it.id })

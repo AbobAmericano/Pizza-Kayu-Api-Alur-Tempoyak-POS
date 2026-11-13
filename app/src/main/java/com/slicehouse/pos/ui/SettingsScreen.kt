@@ -60,8 +60,15 @@ import com.slicehouse.pos.print.ReceiptPrinter
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(viewModel: SettingsViewModel = viewModel(factory = PosViewModelFactory)) {
+fun SettingsScreen(
+    viewModel: SettingsViewModel = viewModel(factory = PosViewModelFactory),
+    authViewModel: AuthViewModel = viewModel(factory = PosViewModelFactory)
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val auth by authViewModel.state.collectAsStateWithLifecycle()
+    // Shop details, tax, receipt, staff and reset need the owner; theme and printer don't.
+    val gate = rememberOwnerGate(authViewModel)
+    var showStaff by remember { mutableStateOf(false) }
     val settings = state.settings
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -173,7 +180,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = viewModel(factory = PosViewMod
                 Text("Store settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             }
             Button(
-                onClick = { save() },
+                onClick = { gate.require { save() } },
                 enabled = dirty && valid,
                 shape = RoundedCornerShape(14.dp)
             ) {
@@ -189,6 +196,21 @@ fun SettingsScreen(viewModel: SettingsViewModel = viewModel(factory = PosViewMod
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp, vertical = 16.dp)
         ) {
+            SettingsCard(title = "Staff", emoji = "👥") {
+                val me = auth.signedIn
+                Text(
+                    if (me != null) "Signed in as ${me.name} (${me.role.label})" else "Not signed in",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    "${auth.activeStaff.size} active ${if (auth.activeStaff.size == 1) "account" else "accounts"}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = { gate.require { showStaff = true } }) { Text("Manage staff") }
+            }
+
             SettingsCard(title = "Shop details", emoji = "🏪") {
                 SettingsField("Shop name", shopName) { shopName = it }
                 Spacer(Modifier.height(10.dp))
@@ -374,7 +396,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = viewModel(factory = PosViewMod
                 )
                 Spacer(Modifier.height(12.dp))
                 OutlinedButton(
-                    onClick = { confirmReset = true },
+                    onClick = { gate.require { confirmReset = true } },
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) {
@@ -468,6 +490,10 @@ fun SettingsScreen(viewModel: SettingsViewModel = viewModel(factory = PosViewMod
                 TextButton(onClick = { showPrinterDialog = false }) { Text("Close") }
             }
         )
+    }
+
+    if (showStaff) {
+        StaffDialog(viewModel = authViewModel, onDismiss = { showStaff = false })
     }
 
     if (confirmReset) {

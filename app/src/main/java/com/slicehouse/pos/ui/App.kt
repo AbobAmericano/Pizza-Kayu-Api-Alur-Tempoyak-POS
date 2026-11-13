@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.PointOfSale
 import androidx.compose.material.icons.rounded.RestaurantMenu
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -51,6 +52,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -68,8 +70,13 @@ enum class Destination(val label: String, val icon: ImageVector) {
 }
 
 @Composable
-fun PosApp(viewModel: AppViewModel = viewModel(factory = PosViewModelFactory)) {
+fun PosApp(
+    viewModel: AppViewModel = viewModel(factory = PosViewModelFactory),
+    authViewModel: AuthViewModel = viewModel(factory = PosViewModelFactory)
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val auth by authViewModel.state.collectAsStateWithLifecycle()
+    val recoveryCode by authViewModel.newRecoveryCode.collectAsStateWithLifecycle()
     var destination by rememberSaveable { mutableStateOf(Destination.REGISTER) }
     var checkout by rememberSaveable { mutableStateOf(false) }
     var receiptOrder by remember { mutableStateOf<Order?>(null) }
@@ -79,7 +86,7 @@ fun PosApp(viewModel: AppViewModel = viewModel(factory = PosViewModelFactory)) {
         SystemBars(dark = dark)
         BackHandler(enabled = checkout) { checkout = false }
 
-        if (!state.loaded) {
+        if (!state.loaded || !auth.loaded) {
             // The database opens in the background; this is usually a split second.
             Box(
                 Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
@@ -88,6 +95,21 @@ fun PosApp(viewModel: AppViewModel = viewModel(factory = PosViewModelFactory)) {
                 CircularProgressIndicator()
             }
             return@SliceHouseTheme
+        }
+
+        if (auth.needsSetup) {
+            SetupOwnerScreen(shopName = state.settings.shopName, viewModel = authViewModel)
+            return@SliceHouseTheme
+        }
+        val signedIn = auth.signedIn
+        if (signedIn == null) {
+            LockScreen(state = auth, shopName = state.settings.shopName, viewModel = authViewModel)
+            return@SliceHouseTheme
+        }
+        val lock = {
+            checkout = false
+            receiptOrder = null
+            authViewModel.lock()
         }
 
         BoxWithConstraints(
@@ -112,13 +134,13 @@ fun PosApp(viewModel: AppViewModel = viewModel(factory = PosViewModelFactory)) {
                     contentColor = MaterialTheme.colorScheme.onBackground,
                     bottomBar = {
                         if (!wide) {
-                            BottomBar(destination) { destination = it }
+                            BottomBar(destination, onLock = lock) { destination = it }
                         }
                     }
                 ) { padding ->
                     Row(Modifier.fillMaxSize().padding(padding)) {
                         if (wide) {
-                            NavRail(destination) { destination = it }
+                            NavRail(destination, signedIn.name, onLock = lock) { destination = it }
                         }
                         Box(Modifier.weight(1f).fillMaxHeight()) {
                             when (destination) {
@@ -146,6 +168,10 @@ fun PosApp(viewModel: AppViewModel = viewModel(factory = PosViewModelFactory)) {
             )
         }
 
+        recoveryCode?.let { code ->
+            RecoveryCodeDialog(code = code, onDone = authViewModel::recoveryCodeShown)
+        }
+
         state.storageWarning?.let { message ->
             AlertDialog(
                 onDismissRequest = {},
@@ -160,7 +186,7 @@ fun PosApp(viewModel: AppViewModel = viewModel(factory = PosViewModelFactory)) {
 }
 
 @Composable
-private fun NavRail(current: Destination, onSelect: (Destination) -> Unit) {
+private fun NavRail(current: Destination, signedInName: String, onLock: () -> Unit, onSelect: (Destination) -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -192,7 +218,32 @@ private fun NavRail(current: Destination, onSelect: (Destination) -> Unit) {
                 Spacer(Modifier.height(6.dp))
             }
             Spacer(Modifier.weight(1f))
+            LockRailItem(signedInName, onLock)
         }
+    }
+}
+
+/** Bottom of the rail: who is signed in, tap to lock. */
+@Composable
+private fun LockRailItem(name: String, onLock: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onLock)
+            .padding(vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(Icons.Rounded.Lock, contentDescription = "Lock", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(4.dp))
+        Text("Lock", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+        Text(
+            name,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -221,7 +272,7 @@ private fun RailItem(destination: Destination, selected: Boolean, onClick: () ->
 }
 
 @Composable
-private fun BottomBar(current: Destination, onSelect: (Destination) -> Unit) {
+private fun BottomBar(current: Destination, onLock: () -> Unit, onSelect: (Destination) -> Unit) {
     NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
         Destination.entries.forEach { item ->
             NavigationBarItem(
@@ -231,6 +282,12 @@ private fun BottomBar(current: Destination, onSelect: (Destination) -> Unit) {
                 label = { Text(item.label) }
             )
         }
+        NavigationBarItem(
+            selected = false,
+            onClick = onLock,
+            icon = { Icon(Icons.Rounded.Lock, contentDescription = "Lock") },
+            label = { Text("Lock") }
+        )
     }
 }
 

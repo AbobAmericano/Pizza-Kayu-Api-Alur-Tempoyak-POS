@@ -1,5 +1,6 @@
 package com.slicehouse.pos.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -9,6 +10,7 @@ import com.slicehouse.pos.data.OrderStatus
 import com.slicehouse.pos.data.OrderType
 import com.slicehouse.pos.data.PaymentMethod
 import com.slicehouse.pos.data.ThemeMode
+import com.slicehouse.pos.data.auth.StaffRole
 
 // Database tables. Every money column is whole sen (Long) and named *Sen.
 
@@ -79,7 +81,11 @@ data class OrderEntity(
     val status: OrderStatus,
     val note: String,
     val pickupTime: String,
-    val refundedAt: Long?
+    val refundedAt: Long?,
+    /** Name of the staff member who took the order. Empty for orders from before PINs (v2). */
+    @ColumnInfo(defaultValue = "") val takenBy: String = "",
+    /** Name of the owner who approved the refund, if refunded. */
+    val refundedBy: String? = null
 )
 
 /** One cart line of an order. Name and price are copied at the time of sale. */
@@ -108,6 +114,17 @@ data class OrderLineEntity(
     val crustLabel: String?,
     val toppings: List<String>,
     val note: String
+)
+
+/** A staff account. [pinHash] is a PinHasher hash, never the PIN itself. */
+@Entity(tableName = "staff")
+data class StaffEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val role: StaffRole,
+    val pinHash: String,
+    val active: Boolean,
+    val createdAt: Long
 )
 
 /** Small key/value table for counters and one-off flags. */

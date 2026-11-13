@@ -38,6 +38,7 @@ object ReceiptPrinter {
         if (order.customerName.isNotBlank()) builder.line("Customer: ${order.customerName}")
         if (order.customerPhone.isNotBlank()) builder.line("Phone: ${order.customerPhone}")
         if (order.address.isNotBlank()) builder.wrapped("Address: ${order.address}")
+        if (order.takenBy.isNotBlank()) builder.line("Staff: ${order.takenBy}")
 
         builder.divider()
         order.lines.forEach { line ->

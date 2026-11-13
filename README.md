@@ -23,6 +23,9 @@ Kotlin and Jetpack Compose.
 - **Settings** – shop name, address, phone, Instagram, TikTok, Google Maps link, tax rate, currency
   symbol, receipt footer, light/dark/system theme and the Bluetooth printer. Reset data when you want
   a clean slate.
+- **Staff PINs** – each worker signs in with their own 4–6 digit PIN, and orders record who took
+  them. Refunds, menu and price changes, shop settings and staff management need the owner PIN
+  (a cashier gets an "Owner approval" pad). Cashiers can still mark items sold out.
 - **Adaptive layout** – on a phone the cart slides up as a bottom sheet with bottom navigation; on a
   tablet you get a navigation rail and a permanent cart panel.
 - **Offline first** – no internet permission. Everything is stored in a local database on the device.
@@ -56,6 +59,17 @@ The app icon is generated from `Logo.png`, and the shop defaults are pre-filled 
 3. Or install over USB with `adb install -r PizzaKayuApiDungunPOS.apk`.
 
 Requires Android 8.0 (API 26) or newer. Works on phones and tablets in portrait or landscape.
+
+## Staff PINs
+
+1. On first launch (also after upgrading from v1.5 or earlier) create the **owner account**: name and
+   a 4–6 digit PIN.
+2. The app then shows a 12-character **recovery code** once. Write it down and keep it away from the
+   tablet: it's the only way to reset a forgotten owner PIN (**Forgot owner PIN?** on the lock screen).
+3. Add cashiers in **Settings → Staff → Manage staff**.
+4. Tap **Lock** (side rail or bottom bar) to hand over the tablet. The app doesn't lock by itself.
+
+PINs are stored only as salted PBKDF2 hashes. After 5 wrong PINs, entry is blocked for 30 seconds.
 
 ## Bluetooth printer setup
 

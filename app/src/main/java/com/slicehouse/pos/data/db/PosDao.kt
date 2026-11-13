@@ -42,8 +42,8 @@ abstract class PosDao {
     @Upsert
     abstract suspend fun putMeta(meta: MetaEntity)
 
-    @Query("UPDATE orders SET status = :status, refundedAt = :refundedAt WHERE id = :orderId")
-    abstract suspend fun setOrderStatus(orderId: String, status: OrderStatus, refundedAt: Long?)
+    @Query("UPDATE orders SET status = :status, refundedAt = :refundedAt, refundedBy = :refundedBy WHERE id = :orderId")
+    abstract suspend fun setOrderStatus(orderId: String, status: OrderStatus, refundedAt: Long?, refundedBy: String?)
 
     // ------------------------------------------------------------ batch parts
 
