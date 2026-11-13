@@ -41,10 +41,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,10 +51,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.BackHandler
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.slicehouse.pos.data.Order
 import com.slicehouse.pos.data.PaymentMethod
 import com.slicehouse.pos.data.PosState
-import com.slicehouse.pos.data.PosStore
 import com.slicehouse.pos.data.itemCountLabel
 import com.slicehouse.pos.data.Sen
 import com.slicehouse.pos.data.money
@@ -68,35 +66,18 @@ import com.slicehouse.pos.data.percentLabel
 
 @Composable
 fun CheckoutScreen(
-    state: PosState,
-    store: PosStore,
     wide: Boolean,
     onBack: () -> Unit,
-    onCompleted: (Order) -> Unit
+    onCompleted: (Order) -> Unit,
+    viewModel: CheckoutViewModel = viewModel(factory = PosViewModelFactory)
 ) {
-    var method by rememberSaveable { mutableStateOf(PaymentMethod.CARD) }
-    var cashText by rememberSaveable { mutableStateOf("") }
-
-    val due = state.total
-    val cash = parseMoney(cashText) ?: 0L
-    val change = (cash - due).coerceAtLeast(0)
-    val shortBy = (due - cash).coerceAtLeast(0)
-    val canPay = state.cart.isNotEmpty() && (method == PaymentMethod.CARD || cash >= due)
-    val orderLabel = buildString {
-        append("Order #${state.nextOrderNumber} · ${state.orderType.label}")
-        if (state.table.isNotBlank()) append(" · Table ${state.table}")
-        if (state.pickupTime.isNotBlank()) append(" · Pickup ${state.pickupTime}")
+    val checkout by viewModel.state.collectAsStateWithLifecycle()
+    val state = checkout.pos
+    val leave = {
+        viewModel.reset()
+        onBack()
     }
-
-    val quickAmounts = remember(due) {
-        val values = mutableListOf(due)
-        // Next round RM5, RM10, RM20, RM50 and RM100 above the amount due.
-        listOf(500L, 1_000L, 2_000L, 5_000L, 10_000L).forEach { step ->
-            val rounded = (due + step - 1) / step * step
-            if (rounded > due) values += rounded
-        }
-        values.distinct().take(5)
-    }
+    BackHandler(onBack = leave)
 
     Surface(
         modifier = Modifier
@@ -111,14 +92,14 @@ fun CheckoutScreen(
                 .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = leave) {
                     Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back to order")
                 }
                 Spacer(Modifier.width(4.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Checkout", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text(
-                        orderLabel,
+                        checkout.orderLabel,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -144,17 +125,17 @@ fun CheckoutScreen(
                 ) {
                     OrderSummaryCard(state, Modifier.weight(1f))
                     PaymentCard(
-                        method = method,
-                        onMethod = { method = it },
-                        due = due,
+                        method = checkout.method,
+                        onMethod = viewModel::selectMethod,
+                        due = checkout.due,
                         currency = state.settings.currency,
-                        cashText = cashText,
-                        onCash = { cashText = it },
-                        quickAmounts = quickAmounts,
-                        change = change,
-                        shortBy = shortBy,
-                        canPay = canPay,
-                        onPay = { store.completeOrder(method, cash)?.let(onCompleted) },
+                        cashText = checkout.cashText,
+                        onCash = viewModel::setCashText,
+                        quickAmounts = checkout.quickAmounts,
+                        change = checkout.change,
+                        shortBy = checkout.shortBy,
+                        canPay = checkout.canPay,
+                        onPay = { viewModel.pay()?.let(onCompleted) },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -162,17 +143,17 @@ fun CheckoutScreen(
                 OrderSummaryCard(state, Modifier.fillMaxWidth())
                 Spacer(Modifier.height(16.dp))
                 PaymentCard(
-                    method = method,
-                    onMethod = { method = it },
-                    due = due,
+                    method = checkout.method,
+                    onMethod = viewModel::selectMethod,
+                    due = checkout.due,
                     currency = state.settings.currency,
-                    cashText = cashText,
-                    onCash = { cashText = it },
-                    quickAmounts = quickAmounts,
-                    change = change,
-                    shortBy = shortBy,
-                    canPay = canPay,
-                    onPay = { store.completeOrder(method, cash)?.let(onCompleted) },
+                    cashText = checkout.cashText,
+                    onCash = viewModel::setCashText,
+                    quickAmounts = checkout.quickAmounts,
+                    change = checkout.change,
+                    shortBy = checkout.shortBy,
+                    canPay = checkout.canPay,
+                    onPay = { viewModel.pay()?.let(onCompleted) },
                     modifier = Modifier.fillMaxWidth()
                 )
             }

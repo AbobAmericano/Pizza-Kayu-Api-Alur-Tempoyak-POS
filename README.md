@@ -92,7 +92,8 @@ The release build is signed with the bundled development keystore
 ```
 app/src/main/java/com/slicehouse/pos/
   MainActivity.kt          Single activity, edge-to-edge Compose host
-  PosApplication.kt        Keeps the store alive across rotation
+  PosApplication.kt        Owns the AppContainer for the life of the app
+  AppContainer.kt          Builds the store once and hands it to ViewModels
   data/
     Models.kt              Menu, cart, order, settings and theme models
     Money.kt               Money in whole sen (Long), tax and price parsing
@@ -104,6 +105,8 @@ app/src/main/java/com/slicehouse/pos/
     BluetoothPrinter.kt    Bluetooth SPP connection to the thermal printer
     ReceiptPrinter.kt      ESC/POS receipt builder for 58/80 mm paper
   ui/
+    *ViewModel.kt          One per screen: its state and actions (screen logic lives here, not in the UI)
+    PosViewModelFactory.kt Creates the ViewModels from the AppContainer
     App.kt                 Navigation rail / bottom bar + system bars
     RegisterScreen.kt      Menu browser + cart
     PizzaDialog.kt         Pizza builder

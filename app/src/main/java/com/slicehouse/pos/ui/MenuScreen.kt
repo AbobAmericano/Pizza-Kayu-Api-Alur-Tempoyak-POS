@@ -64,8 +64,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.slicehouse.pos.data.Category
 import com.slicehouse.pos.data.MenuItem
-import com.slicehouse.pos.data.PosState
-import com.slicehouse.pos.data.PosStore
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.slicehouse.pos.data.Topping
 import com.slicehouse.pos.data.itemCountLabel
 import com.slicehouse.pos.data.money
@@ -74,7 +74,8 @@ import com.slicehouse.pos.data.parseMoney
 import java.util.UUID
 
 @Composable
-fun MenuScreen(state: PosState, store: PosStore) {
+fun MenuScreen(viewModel: MenuViewModel = viewModel(factory = PosViewModelFactory)) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
     var itemDraft by remember { mutableStateOf<MenuItem?>(null) }
     var toppingDraft by remember { mutableStateOf<Topping?>(null) }
     var showToppings by remember { mutableStateOf(false) }
@@ -158,7 +159,7 @@ fun MenuScreen(state: PosState, store: PosStore) {
                         MenuItemRow(
                             item = menuItem,
                             currency = state.settings.currency,
-                            onToggle = { store.toggleAvailable(menuItem.id) },
+                            onToggle = { viewModel.toggleAvailable(menuItem.id) },
                             onEdit = { itemDraft = menuItem }
                         )
                     }
@@ -182,11 +183,11 @@ fun MenuScreen(state: PosState, store: PosStore) {
             isNew = state.menu.none { it.id == draft.id },
             onDismiss = { itemDraft = null },
             onSave = {
-                store.saveMenuItem(it)
+                viewModel.saveMenuItem(it)
                 itemDraft = null
             },
             onDelete = {
-                store.deleteMenuItem(draft.id)
+                viewModel.deleteMenuItem(draft.id)
                 itemDraft = null
             }
         )
@@ -211,11 +212,11 @@ fun MenuScreen(state: PosState, store: PosStore) {
             isNew = state.toppings.none { it.id == draft.id },
             onDismiss = { toppingDraft = null },
             onSave = {
-                store.saveTopping(it)
+                viewModel.saveTopping(it)
                 toppingDraft = null
             },
             onDelete = {
-                store.deleteTopping(draft.id)
+                viewModel.deleteTopping(draft.id)
                 toppingDraft = null
             }
         )

@@ -1,8 +1,8 @@
 package com.slicehouse.pos
 
 import android.app.Application
-import com.slicehouse.pos.data.PosStore
 
 class PosApplication : Application() {
-    val store: PosStore by lazy { PosStore(this) }
+    /** Lives as long as the app process, so state survives rotation and screen changes. */
+    val container: AppContainer by lazy { AppContainer(this) }
 }

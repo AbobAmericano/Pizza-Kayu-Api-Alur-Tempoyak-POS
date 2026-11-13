@@ -49,8 +49,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.slicehouse.pos.data.PosState
-import com.slicehouse.pos.data.PosStore
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.slicehouse.pos.data.Settings
 import com.slicehouse.pos.data.ThemeMode
 import com.slicehouse.pos.data.parsePercent
@@ -60,7 +60,8 @@ import com.slicehouse.pos.print.ReceiptPrinter
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(state: PosState, store: PosStore) {
+fun SettingsScreen(viewModel: SettingsViewModel = viewModel(factory = PosViewModelFactory)) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val settings = state.settings
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -113,7 +114,7 @@ fun SettingsScreen(state: PosState, store: PosStore) {
 
     fun save() {
         if (!valid) return
-        store.updateSettings(
+        viewModel.updateSettings(
             settings.copy(
                 shopName = shopName.trim(),
                 address = address.trim(),
@@ -220,7 +221,7 @@ fun SettingsScreen(state: PosState, store: PosStore) {
                         FilterChip(
                             selected = settings.themeMode == mode,
                             onClick = {
-                                store.updateSettings(settings.copy(themeMode = mode))
+                                viewModel.updateSettings(settings.copy(themeMode = mode))
                             },
                             label = { Text("${mode.emoji} ${mode.label}") },
                             shape = RoundedCornerShape(50)
@@ -255,7 +256,7 @@ fun SettingsScreen(state: PosState, store: PosStore) {
                     if (settings.printerAddress.isNotBlank()) {
                         TextButton(
                             onClick = {
-                                store.updateSettings(
+                                viewModel.updateSettings(
                                     settings.copy(printerAddress = "", printerName = "")
                                 )
                             }
@@ -296,7 +297,7 @@ fun SettingsScreen(state: PosState, store: PosStore) {
                         FilterChip(
                             selected = settings.paperWidthMm == width,
                             onClick = {
-                                store.updateSettings(settings.copy(paperWidthMm = width))
+                                viewModel.updateSettings(settings.copy(paperWidthMm = width))
                             },
                             label = { Text("$width mm") },
                             shape = RoundedCornerShape(50)
@@ -420,7 +421,7 @@ fun SettingsScreen(state: PosState, store: PosStore) {
                                 Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        store.updateSettings(
+                                        viewModel.updateSettings(
                                             settings.copy(
                                                 printerAddress = device.address,
                                                 printerName = device.name
@@ -434,7 +435,7 @@ fun SettingsScreen(state: PosState, store: PosStore) {
                                 RadioButton(
                                     selected = settings.printerAddress == device.address,
                                     onClick = {
-                                        store.updateSettings(
+                                        viewModel.updateSettings(
                                             settings.copy(
                                                 printerAddress = device.address,
                                                 printerName = device.name
@@ -482,7 +483,7 @@ fun SettingsScreen(state: PosState, store: PosStore) {
             confirmButton = {
                 TextButton(
                     onClick = {
-                        store.resetAll()
+                        viewModel.resetAll()
                         confirmReset = false
                         Toast.makeText(context, "All data reset", Toast.LENGTH_SHORT).show()
                     }

@@ -55,8 +55,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.slicehouse.pos.data.Order
-import com.slicehouse.pos.data.PosStore
 import com.slicehouse.pos.ui.theme.SliceHouseTheme
 import com.slicehouse.pos.ui.theme.isDarkTheme
 
@@ -68,8 +68,8 @@ enum class Destination(val label: String, val icon: ImageVector) {
 }
 
 @Composable
-fun PosApp(store: PosStore) {
-    val state by store.state.collectAsStateWithLifecycle()
+fun PosApp(viewModel: AppViewModel = viewModel(factory = PosViewModelFactory)) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
     var destination by rememberSaveable { mutableStateOf(Destination.REGISTER) }
     var checkout by rememberSaveable { mutableStateOf(false) }
     var receiptOrder by remember { mutableStateOf<Order?>(null) }
@@ -99,8 +99,6 @@ fun PosApp(store: PosStore) {
 
             if (checkout) {
                 CheckoutScreen(
-                    state = state,
-                    store = store,
                     wide = wide,
                     onBack = { checkout = false },
                     onCompleted = { order ->
@@ -125,18 +123,14 @@ fun PosApp(store: PosStore) {
                         Box(Modifier.weight(1f).fillMaxHeight()) {
                             when (destination) {
                                 Destination.REGISTER -> RegisterScreen(
-                                    state = state,
-                                    store = store,
                                     wide = wide,
                                     onCheckout = { checkout = true }
                                 )
                                 Destination.ORDERS -> OrdersScreen(
-                                    state = state,
-                                    store = store,
                                     onGoToRegister = { destination = Destination.REGISTER }
                                 )
-                                Destination.MENU -> MenuScreen(state = state, store = store)
-                                Destination.SETTINGS -> SettingsScreen(state = state, store = store)
+                                Destination.MENU -> MenuScreen()
+                                Destination.SETTINGS -> SettingsScreen()
                             }
                         }
                     }
@@ -158,7 +152,7 @@ fun PosApp(store: PosStore) {
                 title = { Text("Saved data") },
                 text = { Text(message) },
                 confirmButton = {
-                    TextButton(onClick = { store.dismissStorageWarning() }) { Text("OK") }
+                    TextButton(onClick = { viewModel.dismissStorageWarning() }) { Text("OK") }
                 }
             )
         }
