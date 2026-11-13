@@ -26,6 +26,8 @@ import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.PointOfSale
 import androidx.compose.material.icons.rounded.RestaurantMenu
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -33,6 +35,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -75,6 +78,17 @@ fun PosApp(store: PosStore) {
     SliceHouseTheme(themeMode = state.settings.themeMode) {
         SystemBars(dark = dark)
         BackHandler(enabled = checkout) { checkout = false }
+
+        if (!state.loaded) {
+            // The database opens in the background; this is usually a split second.
+            Box(
+                Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+            return@SliceHouseTheme
+        }
 
         BoxWithConstraints(
             Modifier
@@ -135,6 +149,17 @@ fun PosApp(store: PosStore) {
                 order = order,
                 settings = state.settings,
                 onDismiss = { receiptOrder = null }
+            )
+        }
+
+        state.storageWarning?.let { message ->
+            AlertDialog(
+                onDismissRequest = {},
+                title = { Text("Saved data") },
+                text = { Text(message) },
+                confirmButton = {
+                    TextButton(onClick = { store.dismissStorageWarning() }) { Text("OK") }
+                }
             )
         }
     }

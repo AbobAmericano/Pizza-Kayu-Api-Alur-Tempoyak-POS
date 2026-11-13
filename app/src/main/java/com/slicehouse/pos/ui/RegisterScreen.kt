@@ -73,6 +73,7 @@ import com.slicehouse.pos.data.PosState
 import com.slicehouse.pos.data.PosStore
 import com.slicehouse.pos.data.SampleData
 import com.slicehouse.pos.data.money
+import com.slicehouse.pos.data.percentLabel
 import com.slicehouse.pos.data.itemCountLabel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -406,7 +407,7 @@ fun CartPanel(
         ) {
             Column(Modifier.padding(14.dp)) {
                 SummaryRow("Subtotal", money(state.subtotal, state.settings.currency))
-                SummaryRow("Tax (${trimNumber(state.settings.taxPercent)}%)", money(state.tax, state.settings.currency))
+                SummaryRow("Tax (${percentLabel(state.settings.taxBasisPoints)}%)", money(state.tax, state.settings.currency))
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text("Total", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -569,7 +570,3 @@ private fun SummaryRow(label: String, value: String) {
         Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
     }
 }
-
-fun trimNumber(value: Double): String =
-    if (value % 1.0 == 0.0) String.format(java.util.Locale.US, "%.0f", value)
-    else String.format(java.util.Locale.US, "%.2f", value)

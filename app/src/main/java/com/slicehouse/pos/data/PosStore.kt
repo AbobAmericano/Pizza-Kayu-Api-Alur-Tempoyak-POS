@@ -1,11 +1,26 @@
 package com.slicehouse.pos.data
 
 import android.content.Context
+import com.slicehouse.pos.data.db.MetaEntity
+import com.slicehouse.pos.data.db.PosDao
+import com.slicehouse.pos.data.db.PosDatabase
+import com.slicehouse.pos.data.db.lineEntities
+import com.slicehouse.pos.data.db.toEntity
+import com.slicehouse.pos.data.db.toMenuEntities
+import com.slicehouse.pos.data.db.toModel
+import com.slicehouse.pos.data.db.toOrders
+import com.slicehouse.pos.data.db.toToppingEntities
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
+import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
 
@@ -14,7 +29,11 @@ data class PosState(
     val toppings: List<Topping> = SampleData.toppings,
     val settings: Settings = Settings(),
     val orders: List<Order> = emptyList(),
-    val nextOrderNumber: Int = 1001,
+    val nextOrderNumber: Int = FIRST_ORDER_NUMBER,
+    /** False until the database has been read; the UI shows a loading screen. */
+    val loaded: Boolean = false,
+    /** Shown as a banner when data couldn't be imported or saved. */
+    val storageWarning: String? = null,
     // Transient (never persisted) register state.
     val cart: List<CartLine> = emptyList(),
     val orderType: OrderType = OrderType.TAKEAWAY,
@@ -25,9 +44,9 @@ data class PosState(
     val orderNote: String = "",
     val pickupTime: String = ""
 ) {
-    val subtotal: Double get() = round2(cart.sumOf { it.lineTotal })
-    val tax: Double get() = round2(subtotal * settings.taxPercent / 100.0)
-    val total: Double get() = round2(subtotal + tax)
+    val subtotal: Sen get() = cart.sumOf { it.lineTotal }
+    val tax: Sen get() = taxSen(subtotal, settings.taxBasisPoints)
+    val total: Sen get() = subtotal + tax
     val itemCount: Int get() = cart.sumOf { it.qty }
 
     /**
@@ -50,28 +69,96 @@ data class PosState(
             pickupTime = pickupTime
         )
     }
+
+    /** The paid order the current cart becomes, or null if the cart is empty. */
+    fun buildOrder(payment: PaymentMethod, cashReceived: Sen, id: String, now: Long): Order? {
+        if (cart.isEmpty()) return null
+        val received = if (payment == PaymentMethod.CASH) cashReceived else total
+        return Order(
+            id = id,
+            number = nextOrderNumber,
+            createdAt = now,
+            lines = cart,
+            type = orderType,
+            table = table,
+            customerName = customerName,
+            customerPhone = customerPhone,
+            address = address,
+            pickupTime = pickupTime,
+            subtotal = subtotal,
+            tax = tax,
+            total = total,
+            payment = payment,
+            cashReceived = received,
+            change = (received - total).coerceAtLeast(0),
+            note = orderNote
+        )
+    }
+
+    fun clearedRegister(): PosState = copy(
+        cart = emptyList(),
+        table = "",
+        customerName = "",
+        customerPhone = "",
+        address = "",
+        orderNote = "",
+        pickupTime = ""
+    )
+
+    companion object {
+        const val FIRST_ORDER_NUMBER = 1001
+    }
 }
 
-class PosStore(context: Context) {
+/**
+ * Holds the app state and saves it to the Room database.
+ *
+ * Screens read [state] and call the functions below. Each change updates [state]
+ * straight away, then the matching database write is queued and run in order on
+ * a background thread. A failed write shows a warning instead of being ignored.
+ */
+class PosStore internal constructor(
+    private val dao: PosDao,
+    private val filesDir: File,
+    scope: CoroutineScope,
+    private val clock: () -> Long = System::currentTimeMillis
+) {
 
-    private companion object {
-        /** v3: shop pizza pricing/sizes, Extra cheese only, kitchen receipts. */
-        const val SCHEMA_VERSION = 3
-    }
+    constructor(context: Context) : this(
+        dao = PosDatabase.open(context).dao(),
+        filesDir = context.filesDir,
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    )
 
-    private val file = File(context.filesDir, "slicehouse_pos.json")
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-    }
-
-    private val _state = MutableStateFlow(load())
+    private val _state = MutableStateFlow(PosState())
     val state: StateFlow<PosState> = _state.asStateFlow()
+
+    /** Database writes, run one at a time in the order they were made. */
+    private val writes = Channel<suspend () -> Unit>(Channel.UNLIMITED)
+
+    init {
+        scope.launch(Dispatchers.IO) {
+            runCatching { load() }
+                .onSuccess { loaded -> _state.value = loaded }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(loaded = true, storageWarning = "Couldn't open saved data (${error.describe()}).")
+                    }
+                }
+            for (write in writes) {
+                runCatching { write() }.onFailure { error ->
+                    _state.update {
+                        it.copy(storageWarning = "Couldn't save the last change (${error.describe()}).")
+                    }
+                }
+            }
+        }
+    }
 
     // ---------------------------------------------------------------- register
 
     fun addLine(line: CartLine) {
-        update { state ->
+        _state.update { state ->
             val existing = state.cart.firstOrNull { sameLine(it, line) }
             val cart = if (existing != null) {
                 state.cart.map {
@@ -85,7 +172,7 @@ class PosStore(context: Context) {
     }
 
     fun changeQty(lineId: String, delta: Int) {
-        update { state ->
+        _state.update { state ->
             val cart = state.cart.mapNotNull {
                 if (it.lineId != lineId) return@mapNotNull it
                 val qty = it.qty + delta
@@ -96,82 +183,43 @@ class PosStore(context: Context) {
     }
 
     fun removeLine(lineId: String) {
-        update { state -> state.copy(cart = state.cart.filterNot { it.lineId == lineId }) }
+        _state.update { state -> state.copy(cart = state.cart.filterNot { it.lineId == lineId }) }
     }
 
-    fun clearCart() {
-        update { state ->
-            state.copy(
-                cart = emptyList(),
-                table = "",
-                customerName = "",
-                customerPhone = "",
-                address = "",
-                orderNote = "",
-                pickupTime = ""
-            )
-        }
-    }
+    fun clearCart() = _state.update { it.clearedRegister() }
 
-    fun setOrderType(type: OrderType) = update { it.copy(orderType = type) }
-    fun setTable(value: String) = update { it.copy(table = value) }
-    fun setCustomerName(value: String) = update { it.copy(customerName = value) }
-    fun setCustomerPhone(value: String) = update { it.copy(customerPhone = value) }
-    fun setAddress(value: String) = update { it.copy(address = value) }
-    fun setOrderNote(value: String) = update { it.copy(orderNote = value) }
-    fun setPickupTime(value: String) = update { it.copy(pickupTime = value) }
+    fun setOrderType(type: OrderType) = _state.update { it.copy(orderType = type) }
+    fun setTable(value: String) = _state.update { it.copy(table = value) }
+    fun setCustomerName(value: String) = _state.update { it.copy(customerName = value) }
+    fun setCustomerPhone(value: String) = _state.update { it.copy(customerPhone = value) }
+    fun setAddress(value: String) = _state.update { it.copy(address = value) }
+    fun setOrderNote(value: String) = _state.update { it.copy(orderNote = value) }
+    fun setPickupTime(value: String) = _state.update { it.copy(pickupTime = value) }
 
     /** Converts the current cart into a paid order and clears the register. */
-    fun completeOrder(payment: PaymentMethod, cashReceived: Double): Order? {
-        val current = _state.value
-        if (current.cart.isEmpty()) return null
-        val total = current.total
-        val received = if (payment == PaymentMethod.CASH) cashReceived else total
-        val order = Order(
-            id = UUID.randomUUID().toString(),
-            number = current.nextOrderNumber,
-            createdAt = System.currentTimeMillis(),
-            lines = current.cart,
-            type = current.orderType,
-            table = current.table,
-            customerName = current.customerName,
-            customerPhone = current.customerPhone,
-            address = current.address,
-            pickupTime = current.pickupTime,
-            subtotal = current.subtotal,
-            tax = current.tax,
-            total = total,
-            payment = payment,
-            cashReceived = received,
-            change = round2((received - total).coerceAtLeast(0.0)),
-            note = current.orderNote
-        )
-        update {
-            it.copy(
-                orders = listOf(order) + it.orders,
-                nextOrderNumber = it.nextOrderNumber + 1,
-                cart = emptyList(),
-                table = "",
-                customerName = "",
-                customerPhone = "",
-                address = "",
-                orderNote = "",
-                pickupTime = ""
-            )
+    fun completeOrder(payment: PaymentMethod, cashReceived: Sen): Order? {
+        val order = _state.value.buildOrder(payment, cashReceived, UUID.randomUUID().toString(), clock())
+            ?: return null
+        val next = order.number + 1
+        _state.update {
+            it.clearedRegister().copy(orders = listOf(order) + it.orders, nextOrderNumber = next)
         }
+        enqueue { dao.saveOrder(order.toEntity(), order.lineEntities(), next) }
         return order
     }
 
     fun refund(orderId: String) {
-        update { state ->
+        val now = clock()
+        _state.update { state ->
             state.copy(orders = state.orders.map {
-                if (it.id == orderId) it.copy(status = OrderStatus.REFUNDED) else it
+                if (it.id == orderId) it.copy(status = OrderStatus.REFUNDED, refundedAt = now) else it
             })
         }
+        enqueue { dao.setOrderStatus(orderId, OrderStatus.REFUNDED, now) }
     }
 
     fun reorder(order: Order) {
-        update { state ->
+        _state.update { state ->
             val lines = order.lines.map { it.copy(lineId = UUID.randomUUID().toString()) }
             state.copy(
                 cart = lines,
@@ -186,57 +234,70 @@ class PosStore(context: Context) {
 
     // -------------------------------------------------------------------- menu
 
-    fun saveMenuItem(item: MenuItem) {
-        update { state ->
-            val exists = state.menu.any { it.id == item.id }
-            val menu = if (exists) {
-                state.menu.map { if (it.id == item.id) item else it }
-            } else {
-                state.menu + item
-            }
-            state.copy(menu = menu)
-        }
+    fun saveMenuItem(item: MenuItem) = updateMenu { menu ->
+        if (menu.any { it.id == item.id }) menu.map { if (it.id == item.id) item else it } else menu + item
     }
 
-    fun deleteMenuItem(id: String) {
-        update { state -> state.copy(menu = state.menu.filterNot { it.id == id }) }
+    fun deleteMenuItem(id: String) = updateMenu { menu -> menu.filterNot { it.id == id } }
+
+    fun toggleAvailable(id: String) = updateMenu { menu ->
+        menu.map { if (it.id == id) it.copy(available = !it.available) else it }
     }
 
-    fun toggleAvailable(id: String) {
-        update { state ->
-            state.copy(menu = state.menu.map {
-                if (it.id == id) it.copy(available = !it.available) else it
-            })
-        }
+    fun saveTopping(topping: Topping) = updateToppings { list ->
+        if (list.any { it.id == topping.id }) list.map { if (it.id == topping.id) topping else it } else list + topping
     }
 
-    fun saveTopping(topping: Topping) {
-        update { state ->
-            val exists = state.toppings.any { it.id == topping.id }
-            val list = if (exists) {
-                state.toppings.map { if (it.id == topping.id) topping else it }
-            } else {
-                state.toppings + topping
-            }
-            state.copy(toppings = list)
-        }
-    }
-
-    fun deleteTopping(id: String) {
-        update { state -> state.copy(toppings = state.toppings.filterNot { it.id == id }) }
-    }
+    fun deleteTopping(id: String) = updateToppings { list -> list.filterNot { it.id == id } }
 
     // ---------------------------------------------------------------- settings
 
-    fun updateSettings(settings: Settings) = update { it.copy(settings = settings) }
+    fun updateSettings(settings: Settings) {
+        _state.update { it.copy(settings = settings) }
+        enqueue { dao.upsertSettings(settings.toEntity()) }
+    }
 
+    /** Deletes every order and restores the starter menu. Shop settings are kept. */
     fun resetAll() {
-        update { state ->
-            PosState(settings = state.settings, nextOrderNumber = 1001)
+        _state.update {
+            PosState(settings = it.settings, loaded = true, storageWarning = it.storageWarning)
+        }
+        enqueue {
+            dao.resetData(
+                SampleData.menu.toMenuEntities(),
+                SampleData.toppings.toToppingEntities(),
+                PosState.FIRST_ORDER_NUMBER
+            )
         }
     }
 
+    fun dismissStorageWarning() {
+        _state.update { it.copy(storageWarning = null) }
+        enqueue { dao.putMeta(MetaEntity(PosDao.KEY_IMPORT_WARNING, "")) }
+    }
+
+    /** Suspends until every write queued so far has finished. Used by tests. */
+    internal suspend fun awaitWrites() {
+        val done = CompletableDeferred<Unit>()
+        writes.send { done.complete(Unit) }
+        done.await()
+    }
+
     // --------------------------------------------------------------- internals
+
+    private fun updateMenu(block: (List<MenuItem>) -> List<MenuItem>) {
+        val menu = _state.updateAndGet { it.copy(menu = block(it.menu)) }.menu
+        enqueue { dao.replaceMenu(menu.toMenuEntities()) }
+    }
+
+    private fun updateToppings(block: (List<Topping>) -> List<Topping>) {
+        val toppings = _state.updateAndGet { it.copy(toppings = block(it.toppings)) }.toppings
+        enqueue { dao.replaceToppings(toppings.toToppingEntities()) }
+    }
+
+    private fun enqueue(write: suspend () -> Unit) {
+        writes.trySend(write)
+    }
 
     private fun sameLine(a: CartLine, b: CartLine): Boolean =
         a.itemId == b.itemId &&
@@ -246,87 +307,63 @@ class PosStore(context: Context) {
             a.toppings == b.toppings &&
             a.note == b.note
 
-    private fun update(block: (PosState) -> PosState) {
-        val old = _state.value
-        val new = block(old)
-        _state.value = new
-        val persistedChanged = old.menu != new.menu ||
-            old.toppings != new.toppings ||
-            old.settings != new.settings ||
-            old.orders != new.orders ||
-            old.nextOrderNumber != new.nextOrderNumber
-        if (persistedChanged) persist(new)
-    }
-
-    private fun persist(state: PosState) {
-        runCatching {
-            val data = PersistedData(
-                menu = state.menu,
-                toppings = state.toppings,
-                settings = state.settings,
-                orders = state.orders,
-                nextOrderNumber = state.nextOrderNumber,
-                schemaVersion = SCHEMA_VERSION
-            )
-            file.writeText(json.encodeToString(data))
-        }
-    }
-
-    private fun load(): PosState = runCatching {
-        if (!file.exists()) return PosState()
-        val data = json.decodeFromString<PersistedData>(file.readText())
-        val needsUpgrade = data.schemaVersion < SCHEMA_VERSION
-        val state = PosState(
-            menu = if (needsUpgrade) migrateMenuV3(data.menu) else data.menu,
-            toppings = if (needsUpgrade) SampleData.toppings else data.toppings,
-            settings = migrateSettings(data.settings),
-            orders = data.orders,
-            nextOrderNumber = data.nextOrderNumber
+    private suspend fun load(): PosState {
+        if (dao.meta(PosDao.KEY_INITIALIZED) == null) initialize()
+        return PosState(
+            menu = dao.menu().map { it.toModel() },
+            toppings = dao.toppings().map { it.toModel() },
+            settings = dao.settings()?.toModel() ?: Settings(),
+            orders = toOrders(dao.orders(), dao.orderLines()),
+            nextOrderNumber = dao.meta(PosDao.KEY_NEXT_ORDER_NUMBER)?.toIntOrNull()
+                ?: PosState.FIRST_ORDER_NUMBER,
+            loaded = true,
+            storageWarning = dao.meta(PosDao.KEY_IMPORT_WARNING)?.takeIf { it.isNotBlank() }
         )
-        if (needsUpgrade) persist(state)
-        state
-    }.getOrElse { PosState() }
+    }
 
     /**
-     * v3 upgrade:
-     *  - replaces the old demo pizzas with the shop's photographed menu,
-     *  - moves every known pizza to the new 10"/11"/12" pricing (RM20 base),
-     *  - applies the per-pizza 12" availability and RM40 smoke beef/duck price.
-     * Custom items and user changes to names, photos and availability are kept.
+     * First launch of this version. Imports v1.4's JSON file if there is one.
+     * The old file is never deleted: after a successful import it is renamed to
+     * [LegacyImport.IMPORTED_FILE_NAME]; if it can't be read it is left as it is.
      */
-    private fun migrateMenuV3(menu: List<MenuItem>): List<MenuItem> {
-        val oldPizzaIds = (1..8).map { "p$it" }.toSet()
-        val hasOldDemo = menu.any { it.id in oldPizzaIds && it.imageKey.isBlank() }
-        val base = if (hasOldDemo) {
-            val kept = menu.filterNot { it.id in oldPizzaIds }
-            val pizzas = SampleData.menu.filter { it.category == Category.PIZZA }
-            (pizzas + kept).distinctBy { it.id }
+    private suspend fun initialize() {
+        val legacyFile = File(filesDir, LegacyImport.FILE_NAME)
+        val starter = LegacyImport.Data(
+            menu = SampleData.menu,
+            toppings = SampleData.toppings,
+            settings = Settings(),
+            orders = emptyList(),
+            nextOrderNumber = PosState.FIRST_ORDER_NUMBER
+        )
+        val imported = if (legacyFile.exists()) {
+            runCatching { LegacyImport.parse(legacyFile.readText()) }.getOrNull()
         } else {
-            menu
+            null
         }
-        val templates = SampleData.menu
-            .filter { it.category == Category.PIZZA }
-            .associateBy { it.id }
-        return base.map { item ->
-            val template = templates[item.id] ?: return@map item
-            item.copy(
-                price = template.price,
-                twelveInchAvailable = template.twelveInchAvailable,
-                twelveInchDelta = template.twelveInchDelta
-            )
+        val couldNotRead = "Your old order history couldn't be read, so the app started with the " +
+            "starter menu. The old file was kept unchanged (${LegacyImport.FILE_NAME})."
+
+        if (imported != null) {
+            val saved = runCatching { initializeWith(imported, warning = "") }.isSuccess
+            if (saved) {
+                legacyFile.renameTo(File(filesDir, LegacyImport.IMPORTED_FILE_NAME))
+                return
+            }
         }
+        initializeWith(starter, warning = if (legacyFile.exists()) couldNotRead else "")
     }
 
-    /** Upgrades the old demo shop details to this shop on first run of the new build. */
-    private fun migrateSettings(settings: Settings): Settings {
-        if (settings.shopName != "Slice House" || settings.phone != "(555) 012-3456") return settings
-        val defaults = Settings()
-        return settings.copy(
-            shopName = defaults.shopName,
-            address = defaults.address,
-            phone = defaults.phone,
-            footer = defaults.footer,
-            currency = defaults.currency
+    private suspend fun initializeWith(data: LegacyImport.Data, warning: String) {
+        dao.initialize(
+            menu = data.menu.toMenuEntities(),
+            toppings = data.toppings.toToppingEntities(),
+            settings = data.settings.toEntity(),
+            orders = data.orders.map { it.toEntity() },
+            lines = data.orders.flatMap { it.lineEntities() },
+            nextOrderNumber = data.nextOrderNumber,
+            importWarning = warning
         )
     }
+
+    private fun Throwable.describe(): String = message ?: this::class.java.simpleName
 }

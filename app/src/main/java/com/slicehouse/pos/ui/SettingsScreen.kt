@@ -53,6 +53,8 @@ import com.slicehouse.pos.data.PosState
 import com.slicehouse.pos.data.PosStore
 import com.slicehouse.pos.data.Settings
 import com.slicehouse.pos.data.ThemeMode
+import com.slicehouse.pos.data.parsePercent
+import com.slicehouse.pos.data.percentLabel
 import com.slicehouse.pos.print.BluetoothPrinter
 import com.slicehouse.pos.print.ReceiptPrinter
 import kotlinx.coroutines.launch
@@ -69,7 +71,7 @@ fun SettingsScreen(state: PosState, store: PosStore) {
     var instagram by remember { mutableStateOf(settings.instagram) }
     var tiktok by remember { mutableStateOf(settings.tiktok) }
     var locationUrl by remember { mutableStateOf(settings.locationUrl) }
-    var taxText by remember { mutableStateOf(trimNumber(settings.taxPercent)) }
+    var taxText by remember { mutableStateOf(percentLabel(settings.taxBasisPoints)) }
     var currency by remember { mutableStateOf(settings.currency) }
     var footer by remember { mutableStateOf(settings.footer) }
     var confirmReset by remember { mutableStateOf(false) }
@@ -77,15 +79,15 @@ fun SettingsScreen(state: PosState, store: PosStore) {
     var testingPrint by remember { mutableStateOf(false) }
     var pendingBluetoothAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
-    val tax = taxText.toDoubleOrNull()
-    val valid = shopName.isNotBlank() && currency.isNotBlank() && tax != null && tax >= 0
+    val tax = parsePercent(taxText)
+    val valid = shopName.isNotBlank() && currency.isNotBlank() && tax != null
     val dirty = shopName != settings.shopName ||
         address != settings.address ||
         phone != settings.phone ||
         instagram != settings.instagram ||
         tiktok != settings.tiktok ||
         locationUrl != settings.locationUrl ||
-        taxText != trimNumber(settings.taxPercent) ||
+        taxText != percentLabel(settings.taxBasisPoints) ||
         currency != settings.currency ||
         footer != settings.footer
 
@@ -119,7 +121,7 @@ fun SettingsScreen(state: PosState, store: PosStore) {
                 instagram = instagram.trim(),
                 tiktok = tiktok.trim(),
                 locationUrl = locationUrl.trim(),
-                taxPercent = tax ?: settings.taxPercent,
+                taxBasisPoints = tax ?: settings.taxBasisPoints,
                 currency = currency.trim().ifBlank { "RM" },
                 footer = footer.trim()
             )

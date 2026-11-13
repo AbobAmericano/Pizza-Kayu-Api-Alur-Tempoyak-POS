@@ -60,9 +60,11 @@ import com.slicehouse.pos.data.PaymentMethod
 import com.slicehouse.pos.data.PosState
 import com.slicehouse.pos.data.PosStore
 import com.slicehouse.pos.data.itemCountLabel
+import com.slicehouse.pos.data.Sen
 import com.slicehouse.pos.data.money
-import com.slicehouse.pos.data.round2
-import kotlin.math.ceil
+import com.slicehouse.pos.data.moneyInput
+import com.slicehouse.pos.data.parseMoney
+import com.slicehouse.pos.data.percentLabel
 
 @Composable
 fun CheckoutScreen(
@@ -76,9 +78,9 @@ fun CheckoutScreen(
     var cashText by rememberSaveable { mutableStateOf("") }
 
     val due = state.total
-    val cash = cashText.toDoubleOrNull() ?: 0.0
-    val change = round2((cash - due).coerceAtLeast(0.0))
-    val shortBy = round2((due - cash).coerceAtLeast(0.0))
+    val cash = parseMoney(cashText) ?: 0L
+    val change = (cash - due).coerceAtLeast(0)
+    val shortBy = (due - cash).coerceAtLeast(0)
     val canPay = state.cart.isNotEmpty() && (method == PaymentMethod.CARD || cash >= due)
     val orderLabel = buildString {
         append("Order #${state.nextOrderNumber} · ${state.orderType.label}")
@@ -88,8 +90,9 @@ fun CheckoutScreen(
 
     val quickAmounts = remember(due) {
         val values = mutableListOf(due)
-        listOf(5.0, 10.0, 20.0, 50.0, 100.0).forEach { step ->
-            val rounded = ceil(due / step) * step
+        // Next round RM5, RM10, RM20, RM50 and RM100 above the amount due.
+        listOf(500L, 1_000L, 2_000L, 5_000L, 10_000L).forEach { step ->
+            val rounded = (due + step - 1) / step * step
             if (rounded > due) values += rounded
         }
         values.distinct().take(5)
@@ -221,7 +224,7 @@ private fun OrderSummaryCard(state: PosState, modifier: Modifier = Modifier) {
             HorizontalDivider()
             Spacer(Modifier.height(10.dp))
             SummaryLine("Subtotal", money(state.subtotal, state.settings.currency))
-            SummaryLine("Tax (${trimNumber(state.settings.taxPercent)}%)", money(state.tax, state.settings.currency))
+            SummaryLine("Tax (${percentLabel(state.settings.taxBasisPoints)}%)", money(state.tax, state.settings.currency))
             Spacer(Modifier.height(6.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                 Text("Total", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -251,18 +254,18 @@ private fun SummaryLine(label: String, value: String) {
 private fun PaymentCard(
     method: PaymentMethod,
     onMethod: (PaymentMethod) -> Unit,
-    due: Double,
+    due: Sen,
     currency: String,
     cashText: String,
     onCash: (String) -> Unit,
-    quickAmounts: List<Double>,
-    change: Double,
-    shortBy: Double,
+    quickAmounts: List<Sen>,
+    change: Sen,
+    shortBy: Sen,
     canPay: Boolean,
     onPay: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val cash = cashText.toDoubleOrNull() ?: 0.0
+    val cash = parseMoney(cashText) ?: 0L
 
     Surface(
         modifier = modifier,
@@ -324,18 +327,13 @@ private fun PaymentCard(
                 ) {
                     quickAmounts.forEach { amount ->
                         AssistChip(
-                            onClick = {
-                                onCash(
-                                    if (amount % 1.0 == 0.0) String.format(java.util.Locale.US, "%.0f", amount)
-                                    else String.format(java.util.Locale.US, "%.2f", amount)
-                                )
-                            },
+                            onClick = { onCash(moneyInput(amount)) },
                             label = { Text(if (amount == due) "Exact" else money(amount, currency)) }
                         )
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                if (cash > 0.0 && shortBy > 0.0) {
+                if (cash > 0 && shortBy > 0) {
                     Text(
                         "Short by ${money(shortBy, currency)}",
                         style = MaterialTheme.typography.titleSmall,
@@ -404,7 +402,7 @@ private fun PaymentCard(
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                if (method == PaymentMethod.CASH && shortBy > 0.0) "Enter the cash received to finish"
+                if (method == PaymentMethod.CASH && shortBy > 0) "Enter the cash received to finish"
                 else "Payment is saved to this device",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

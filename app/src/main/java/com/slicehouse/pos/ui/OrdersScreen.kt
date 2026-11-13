@@ -81,7 +81,9 @@ fun OrdersScreen(
     }
     val visible = if (showAll) state.orders else todayOrders
     val salesToday = todayOrders.filter { it.status == OrderStatus.COMPLETED }.sumOf { it.total }
-    val avgTicket = if (todayOrders.isEmpty()) 0.0 else salesToday / todayOrders.count { it.status == OrderStatus.COMPLETED }.coerceAtLeast(1)
+    val completedToday = todayOrders.count { it.status == OrderStatus.COMPLETED }.coerceAtLeast(1)
+    // Rounded half up to the sen, so RM72.47 over 2 orders shows RM36.24.
+    val avgTicket = if (todayOrders.isEmpty()) 0L else (salesToday + completedToday / 2) / completedToday
 
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 20.dp)) {

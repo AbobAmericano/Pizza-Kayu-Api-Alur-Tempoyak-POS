@@ -56,7 +56,8 @@ import com.slicehouse.pos.data.MenuItem
 import com.slicehouse.pos.data.SizeOption
 import com.slicehouse.pos.data.Topping
 import com.slicehouse.pos.data.money
-import com.slicehouse.pos.data.round2
+import com.slicehouse.pos.data.Sen
+import com.slicehouse.pos.data.parseMoney
 import java.util.UUID
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -87,12 +88,12 @@ fun PizzaDialog(
             else -> toppings.firstOrNull { it.id == key }
         }
     }
-    val unitPrice = round2(item.price + sizeDelta + chosen.sumOf { it.price })
-    val total = round2(unitPrice * qty)
+    val unitPrice = item.price + sizeDelta + chosen.sumOf { it.price }
+    val total = unitPrice * qty
 
-    fun applyCustom(name: String, price: Double) {
+    fun applyCustom(name: String, price: Sen) {
         val key = custom?.id ?: return
-        if (name.isBlank() || price < 0.0) {
+        if (name.isBlank() || price < 0) {
             custom = null
             selectedToppings = selectedToppings.filterNot { it == key }.toSet()
         } else {
@@ -212,7 +213,7 @@ fun PizzaDialog(
                             selected = custom != null,
                             onClick = {
                                 val key = "custom-${UUID.randomUUID()}"
-                                custom = Topping(id = key, label = "", emoji = "\uD83E\uDDC0", price = 0.0)
+                                custom = Topping(id = key, label = "", emoji = "\uD83E\uDDC0", price = 0)
                                 customName = ""
                                 customPriceText = ""
                                 selectedToppings = selectedToppings + key
@@ -365,7 +366,7 @@ fun PizzaDialog(
                                 shape = RoundedCornerShape(16.dp)
                             ) { Text("Cancel") }
                             Button(
-                                onClick = { applyCustom(customName, customPriceText.toDoubleOrNull() ?: 0.0); customEditorOpen = false },
+                                onClick = { applyCustom(customName, parseMoney(customPriceText) ?: 0L); customEditorOpen = false },
                                 modifier = Modifier.weight(1.4f).height(52.dp),
                                 shape = RoundedCornerShape(16.dp)
                             ) { Text("Add topping", fontWeight = FontWeight.Bold) }
