@@ -11,8 +11,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Upgrades a real version 1 database (as shipped in PR #2) to version 2 and
- * checks nothing is lost. Room also checks the result matches schemas/2.json.
+ * Upgrades real older databases (version 1 from PR #2, version 2 from PR #4) and
+ * checks nothing is lost. Room also checks each result matches its schemas/N.json.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -52,6 +52,32 @@ class MigrationTest {
         db.query("SELECT COUNT(*) FROM staff").use { row ->
             assertTrue(row.moveToFirst())
             assertEquals(0, row.getInt(0)) // owner is created at first launch, not by the upgrade
+        }
+        db.close()
+    }
+
+    @Test
+    fun version2OrdersAreWaitingToUploadAfterTheUpgrade() {
+        helper.createDatabase(DB, 2).apply {
+            execSQL(
+                """INSERT INTO orders (id, number, createdAt, type, tableLabel, customerName, customerPhone,
+                   address, subtotalSen, taxSen, totalSen, payment, cashReceivedSen, changeSen, status,
+                   note, pickupTime, refundedAt, takenBy, refundedBy)
+                   VALUES ('o2', 1010, 1731400000000, 'DINE_IN', 'T3', '', '', '', 2300, 184, 2484,
+                   'CARD', 2484, 0, 'REFUNDED', '', '', 1731400100000, 'Aina', 'Nasran')"""
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB, 3, true)
+
+        db.query("SELECT number, takenBy, refundedBy, syncState, refundSyncState FROM orders").use { row ->
+            assertTrue(row.moveToFirst())
+            assertEquals(1010, row.getInt(0))
+            assertEquals("Aina", row.getString(1))
+            assertEquals("Nasran", row.getString(2))
+            assertEquals(0, row.getInt(3)) // not uploaded yet
+            assertEquals(0, row.getInt(4))
         }
         db.close()
     }

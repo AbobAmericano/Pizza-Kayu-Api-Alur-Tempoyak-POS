@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds may also use plain http, to reach a test server on the PC
+     (the emulator sees the PC as 10.0.2.2). Release builds use src/main's copy. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

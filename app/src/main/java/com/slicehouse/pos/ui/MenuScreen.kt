@@ -58,11 +58,14 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.slicehouse.pos.data.Category
+import com.slicehouse.pos.data.MenuChange
 import com.slicehouse.pos.data.MenuItem
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -81,6 +84,13 @@ fun MenuScreen(viewModel: MenuViewModel = viewModel(factory = PosViewModelFactor
     var showToppings by remember { mutableStateOf(false) }
     // Prices, new items and toppings need the owner; marking sold out doesn't.
     val gate = rememberOwnerGate()
+    val context = LocalContext.current
+
+    /** Closes the editor if the change went through; otherwise keeps it open and says why. */
+    fun done(close: () -> Unit): (MenuChange) -> Unit = { change ->
+        val problem = change.problem()
+        if (problem == null) close() else Toast.makeText(context, problem, Toast.LENGTH_LONG).show()
+    }
 
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 20.dp)) {
@@ -186,14 +196,8 @@ fun MenuScreen(viewModel: MenuViewModel = viewModel(factory = PosViewModelFactor
             currency = state.settings.currency,
             isNew = state.menu.none { it.id == draft.id },
             onDismiss = { itemDraft = null },
-            onSave = {
-                viewModel.saveMenuItem(it)
-                itemDraft = null
-            },
-            onDelete = {
-                viewModel.deleteMenuItem(draft.id)
-                itemDraft = null
-            }
+            onSave = { viewModel.saveMenuItem(it, done { itemDraft = null }) },
+            onDelete = { viewModel.deleteMenuItem(draft.id, done { itemDraft = null }) }
         )
     }
 
@@ -215,14 +219,8 @@ fun MenuScreen(viewModel: MenuViewModel = viewModel(factory = PosViewModelFactor
             currency = state.settings.currency,
             isNew = state.toppings.none { it.id == draft.id },
             onDismiss = { toppingDraft = null },
-            onSave = {
-                viewModel.saveTopping(it)
-                toppingDraft = null
-            },
-            onDelete = {
-                viewModel.deleteTopping(draft.id)
-                toppingDraft = null
-            }
+            onSave = { viewModel.saveTopping(it, done { toppingDraft = null }) },
+            onDelete = { viewModel.deleteTopping(draft.id, done { toppingDraft = null }) }
         )
     }
 }

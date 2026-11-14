@@ -29,6 +29,7 @@ val PosViewModelFactory: ViewModelProvider.Factory = viewModelFactory {
     initializer { OrdersViewModel(store()) }
     initializer { MenuViewModel(store()) }
     initializer { SettingsViewModel(store()) }
+    initializer { SyncViewModel(container().sync) }
 }
 
 private fun CreationExtras.container(): AppContainer =

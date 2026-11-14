@@ -17,6 +17,6 @@ class SettingsViewModel(private val store: PosStore) : ViewModel() {
 
     fun updateSettings(settings: Settings) = store.updateSettings(settings)
 
-    /** Deletes every order and restores the starter menu. Shop settings are kept. */
-    fun resetAll() = store.resetAll()
+    /** Deletes every order and restores the starter menu. False while connected to FireLord. */
+    fun resetAll(): Boolean = store.resetAll()
 }

@@ -37,6 +37,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,9 +63,12 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel = viewModel(factory = PosViewModelFactory),
-    authViewModel: AuthViewModel = viewModel(factory = PosViewModelFactory)
+    authViewModel: AuthViewModel = viewModel(factory = PosViewModelFactory),
+    syncViewModel: SyncViewModel = viewModel(factory = PosViewModelFactory)
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val sync by syncViewModel.status.collectAsStateWithLifecycle()
+    val connecting by syncViewModel.connecting.collectAsStateWithLifecycle()
     val auth by authViewModel.state.collectAsStateWithLifecycle()
     // Shop details, tax, receipt, staff and reset need the owner; theme and printer don't.
     val gate = rememberOwnerGate(authViewModel)
@@ -80,6 +84,10 @@ fun SettingsScreen(
     var tiktok by remember { mutableStateOf(settings.tiktok) }
     var locationUrl by remember { mutableStateOf(settings.locationUrl) }
     var taxText by remember { mutableStateOf(percentLabel(settings.taxBasisPoints)) }
+    // While connected, FireLord sets the tax rate: show whatever it currently is.
+    LaunchedEffect(sync.connected, settings.taxBasisPoints) {
+        if (sync.connected) taxText = percentLabel(settings.taxBasisPoints)
+    }
     var currency by remember { mutableStateOf(settings.currency) }
     var footer by remember { mutableStateOf(settings.footer) }
     var confirmReset by remember { mutableStateOf(false) }
@@ -210,6 +218,19 @@ fun SettingsScreen(
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(onClick = { gate.require { showStaff = true } }) { Text("Manage staff") }
             }
+
+            SettingsCard(title = "FireLord", emoji = "☁️") {
+                FireLordSection(
+                    status = sync,
+                    connecting = connecting,
+                    requireOwner = { action -> gate.require { action() } },
+                    onConnect = syncViewModel::connect,
+                    onSyncNow = syncViewModel::syncNow,
+                    onDisconnect = syncViewModel::disconnect
+                )
+            }
+
+            Spacer(Modifier.height(14.dp))
 
             SettingsCard(title = "Shop details", emoji = "🏪") {
                 SettingsField("Shop name", shopName) { shopName = it }
@@ -347,6 +368,7 @@ fun SettingsScreen(
                         label = { Text("Tax rate") },
                         suffix = { Text("%") },
                         singleLine = true,
+                        enabled = !sync.connected,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.weight(1f)
@@ -362,7 +384,11 @@ fun SettingsScreen(
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Tax is calculated on the order subtotal. Currency is shown in front of every amount.",
+                    if (sync.connected) {
+                        "The tax rate is set on FireLord (Pizza POS → Settings). Currency is shown in front of every amount."
+                    } else {
+                        "Tax is calculated on the order subtotal. Currency is shown in front of every amount."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -390,7 +416,11 @@ fun SettingsScreen(
 
             SettingsCard(title = "Data", emoji = "💾") {
                 Text(
-                    "Orders, the menu and these settings are stored only on this device. Back up the device to keep your data.",
+                    if (sync.connected) {
+                        "Orders are saved on this device and copied to FireLord. Reset needs disconnecting from FireLord first."
+                    } else {
+                        "Orders, the menu and these settings are stored only on this device. Back up the device to keep your data."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -406,7 +436,7 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(20.dp))
             Text(
-                "Pizza Kayu Api Dungun POS · v1.4\nMade for pizza people.",
+                "Pizza Kayu Api Dungun POS · v1.5\nMade for pizza people.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -509,9 +539,10 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.resetAll()
+                        val done = viewModel.resetAll()
                         confirmReset = false
-                        Toast.makeText(context, "All data reset", Toast.LENGTH_SHORT).show()
+                        val message = if (done) "All data reset" else "Disconnect from FireLord first"
+                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                     }
                 ) { Text("Reset", color = MaterialTheme.colorScheme.error) }
             },

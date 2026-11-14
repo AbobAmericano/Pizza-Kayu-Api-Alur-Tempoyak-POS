@@ -1,9 +1,11 @@
 package com.slicehouse.pos
 
 import android.content.Context
+import android.os.Build
 import com.slicehouse.pos.data.PosStore
 import com.slicehouse.pos.data.auth.StaffAuth
 import com.slicehouse.pos.data.db.PosDatabase
+import com.slicehouse.pos.data.sync.SyncManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,7 +19,7 @@ class AppContainer(context: Context) {
 
     private val appContext = context.applicationContext
 
-    /** Lives as long as the app; background work for the store and sign-in runs here. */
+    /** Lives as long as the app; background work for the store, sign-in and sync runs here. */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /** One database for everything. */
@@ -28,4 +30,18 @@ class AppContainer(context: Context) {
 
     /** Staff accounts, who is signed in, and owner approval. */
     val auth: StaffAuth by lazy { StaffAuth(database.staffDao(), appScope) }
+
+    /** The connection to FireLord. Creating it hooks it into the store. */
+    val sync: SyncManager by lazy {
+        SyncManager(
+            dao = database.dao(),
+            store = store,
+            scope = appScope,
+            allowHttp = BuildConfig.DEBUG,
+            deviceName = listOf(Build.MANUFACTURER, Build.MODEL).joinToString(" ").trim().ifBlank { "Tablet" }
+        ).also { sync ->
+            store.menuMaster = sync
+            store.onOrdersChanged = { sync.requestSync() }
+        }
+    }
 }

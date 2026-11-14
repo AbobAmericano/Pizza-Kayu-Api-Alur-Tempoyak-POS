@@ -85,8 +85,20 @@ data class OrderEntity(
     /** Name of the staff member who took the order. Empty for orders from before PINs (v2). */
     @ColumnInfo(defaultValue = "") val takenBy: String = "",
     /** Name of the owner who approved the refund, if refunded. */
-    val refundedBy: String? = null
+    val refundedBy: String? = null,
+    /** Upload to FireLord: [SyncState.PENDING], [SyncState.DONE] or [SyncState.REJECTED] (v3). */
+    @ColumnInfo(defaultValue = "0") val syncState: Int = SyncState.PENDING,
+    /** Whether the refund has reached FireLord. Only meaningful for refunded orders (v3). */
+    @ColumnInfo(defaultValue = "0") val refundSyncState: Int = SyncState.PENDING
 )
+
+/** Values of the sync columns on [OrderEntity]. */
+object SyncState {
+    const val PENDING = 0
+    const val DONE = 1
+    /** The server refused it (e.g. totals that don't add up). Not retried. */
+    const val REJECTED = 2
+}
 
 /** One cart line of an order. Name and price are copied at the time of sale. */
 @Entity(

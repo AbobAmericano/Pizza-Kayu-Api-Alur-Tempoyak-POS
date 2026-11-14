@@ -71,6 +71,32 @@ Requires Android 8.0 (API 26) or newer. Works on phones and tablets in portrait 
 
 PINs are stored only as salted PBKDF2 hashes. After 5 wrong PINs, entry is blocked for 30 seconds.
 
+## Connect to FireLord (optional)
+
+The tablet can copy every order to the shop owner's FireLord site and take its menu from there.
+Without connecting, the app works exactly as before, offline and on its own.
+
+1. On FireLord open **Pizza POS → Tablets → Get a pairing code**. The 6-digit code works once, for
+   10 minutes.
+2. On the tablet (signed in as owner) open **Settings → FireLord → Connect to FireLord**, type the
+   FireLord address and the code.
+3. The first sync sends the tablet's menu up if FireLord has none yet; otherwise FireLord's menu
+   replaces the tablet's. Every order already on the tablet is uploaded.
+
+While connected:
+
+- Each sale and refund is sent right away, and everything is checked again every minute while the
+  app is open. Without internet, orders wait on the tablet and go up later. **Settings → FireLord**
+  shows how many are waiting.
+- FireLord holds the master menu. Adding or editing items, prices and toppings needs the internet;
+  marking an item **sold out** works offline and is sent later. Changes made on FireLord arrive on
+  the next sync.
+- The tax rate is set on FireLord. **Reset all data** needs disconnecting first.
+- If the owner disconnects the tablet on FireLord, it stops syncing and says so.
+
+Release builds only connect over `https://`. Debug builds also allow `http://`, e.g.
+`http://10.0.2.2:8000` to reach a FireLord running on the PC from the emulator.
+
 ## Bluetooth printer setup
 
 1. Pair the printer in **Android Settings → Bluetooth** first (default PIN is usually `0000` or
@@ -114,7 +140,9 @@ app/src/main/java/com/slicehouse/pos/
     SampleData.kt          Seed menu, sizes, crusts and toppings
     PosStore.kt            App state; saves every change to the database in order
     LegacyImport.kt        One-time import of the v1.4 JSON file
+    MenuMaster.kt          Where menu edits go while connected to FireLord
     db/                    Room database: tables, queries and converters
+    sync/                  FireLord connection: API client (OkHttp), JSON shapes, SyncManager
   print/
     BluetoothPrinter.kt    Bluetooth SPP connection to the thermal printer
     ReceiptPrinter.kt      ESC/POS receipt builder for 58/80 mm paper
@@ -137,7 +165,8 @@ app/src/main/java/com/slicehouse/pos/
 
 ## Data & privacy
 
-The app requests Bluetooth permissions for the receipt printer and no internet permission. Orders,
+The app requests Bluetooth permissions for the receipt printer, and internet access, which is used
+only after the owner connects it to FireLord. Orders,
 the menu and settings live in a Room (SQLite) database, `pizza_pos.db`, inside the app's private
 storage. Each save is all-or-nothing, so a crash or power cut can't leave half an order behind.
 Money is stored as whole sen, so totals never drift. Uninstalling the app removes the data, so back

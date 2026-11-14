@@ -6,6 +6,7 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Upsert
 import com.slicehouse.pos.data.OrderStatus
+import kotlinx.coroutines.flow.Flow
 
 /**
  * Every write the app makes. Methods marked @Transaction run all-or-nothing:
@@ -42,8 +43,45 @@ abstract class PosDao {
     @Upsert
     abstract suspend fun putMeta(meta: MetaEntity)
 
-    @Query("UPDATE orders SET status = :status, refundedAt = :refundedAt, refundedBy = :refundedBy WHERE id = :orderId")
+    /** Also marks the refund as not yet uploaded, so the sync sends it. */
+    @Query(
+        "UPDATE orders SET status = :status, refundedAt = :refundedAt, refundedBy = :refundedBy, " +
+            "refundSyncState = 0 WHERE id = :orderId"
+    )
     abstract suspend fun setOrderStatus(orderId: String, status: OrderStatus, refundedAt: Long?, refundedBy: String?)
+
+    @Query("DELETE FROM app_meta WHERE `key` = :key")
+    abstract suspend fun deleteMeta(key: String)
+
+    // ------------------------------------------------------------------- sync
+
+    /** Orders not uploaded yet, oldest first. */
+    @Query("SELECT * FROM orders WHERE syncState = 0 ORDER BY createdAt, number LIMIT :limit")
+    abstract suspend fun ordersToUpload(limit: Int): List<OrderEntity>
+
+    @Query("SELECT * FROM order_lines WHERE orderId IN (:orderIds) ORDER BY orderId, position")
+    abstract suspend fun linesFor(orderIds: List<String>): List<OrderLineEntity>
+
+    /** Refunds of orders that are already on the server but whose refund isn't. */
+    @Query("SELECT * FROM orders WHERE syncState = 1 AND status = 'REFUNDED' AND refundSyncState = 0")
+    abstract suspend fun refundsToUpload(): List<OrderEntity>
+
+    @Query("UPDATE orders SET syncState = :state WHERE id = :orderId")
+    abstract suspend fun setSyncState(orderId: String, state: Int)
+
+    /** Only if the order is still refunded at [refundedAt], so a newer change isn't marked as sent. */
+    @Query("UPDATE orders SET refundSyncState = :state WHERE id = :orderId AND refundedAt IS :refundedAt")
+    abstract suspend fun setRefundSyncState(orderId: String, refundedAt: Long?, state: Int)
+
+    /** Orders and refunds still waiting to go up. */
+    @Query(
+        "SELECT COUNT(*) FROM orders WHERE syncState = 0 OR " +
+            "(syncState = 1 AND status = 'REFUNDED' AND refundSyncState = 0)"
+    )
+    abstract fun waitingToUpload(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM orders WHERE syncState = 2")
+    abstract fun rejectedUploads(): Flow<Int>
 
     // ------------------------------------------------------------ batch parts
 

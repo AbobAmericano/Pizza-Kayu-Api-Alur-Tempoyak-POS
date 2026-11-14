@@ -114,6 +114,10 @@ data class PosState(
  * Screens read [state] and call the functions below. Each change updates [state]
  * straight away, then the matching database write is queued and run in order on
  * a background thread. A failed write shows a warning instead of being ignored.
+ *
+ * While the tablet is connected to FireLord, [menuMaster] is set and menu edits
+ * go to the server first (see [MenuMaster]); [onOrdersChanged] starts a sync
+ * after every sale or refund.
  */
 class PosStore(
     private val dao: PosDao,
@@ -121,6 +125,12 @@ class PosStore(
     scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
+
+    /** Set by the app to the FireLord sync. Null in tests that don't need it. */
+    var menuMaster: MenuMaster? = null
+
+    /** Called after an order or refund is saved, so it can be uploaded. */
+    var onOrdersChanged: () -> Unit = {}
 
     private val _state = MutableStateFlow(PosState())
     val state: StateFlow<PosState> = _state.asStateFlow()
@@ -197,6 +207,7 @@ class PosStore(
             it.clearedRegister().copy(orders = listOf(order) + it.orders, nextOrderNumber = next)
         }
         enqueue { dao.saveOrder(order.toEntity(), order.lineEntities(), next) }
+        onOrdersChanged()
         return order
     }
 
@@ -209,6 +220,7 @@ class PosStore(
             })
         }
         enqueue { dao.setOrderStatus(orderId, OrderStatus.REFUNDED, now, approvedBy) }
+        onOrdersChanged()
     }
 
     fun reorder(order: Order) {
@@ -227,31 +239,69 @@ class PosStore(
 
     // -------------------------------------------------------------------- menu
 
-    fun saveMenuItem(item: MenuItem) = updateMenu { menu ->
+    // Adding, editing and deleting items and toppings. While connected to FireLord
+    // these need the internet: nothing changes unless the server accepts it.
+
+    suspend fun saveMenuItem(item: MenuItem): MenuChange = changeMenu(menu = { menu ->
         if (menu.any { it.id == item.id }) menu.map { if (it.id == item.id) item else it } else menu + item
-    }
+    })
 
-    fun deleteMenuItem(id: String) = updateMenu { menu -> menu.filterNot { it.id == id } }
+    suspend fun deleteMenuItem(id: String): MenuChange = changeMenu(menu = { menu -> menu.filterNot { it.id == id } })
 
-    fun toggleAvailable(id: String) = updateMenu { menu ->
-        menu.map { if (it.id == id) it.copy(available = !it.available) else it }
-    }
-
-    fun saveTopping(topping: Topping) = updateToppings { list ->
+    suspend fun saveTopping(topping: Topping): MenuChange = changeMenu(toppings = { list ->
         if (list.any { it.id == topping.id }) list.map { if (it.id == topping.id) topping else it } else list + topping
+    })
+
+    suspend fun deleteTopping(id: String): MenuChange = changeMenu(toppings = { list -> list.filterNot { it.id == id } })
+
+    /** Sold out / back on. Always works, even offline; a connected tablet sends it on the next sync. */
+    fun toggleAvailable(id: String) {
+        val menu = _state.updateAndGet { state ->
+            state.copy(menu = state.menu.map { if (it.id == id) it.copy(available = !it.available) else it })
+        }.menu
+        enqueue { dao.replaceMenu(menu.toMenuEntities()) }
+        val item = menu.firstOrNull { it.id == id } ?: return
+        menuMaster?.takeIf { it.isConnected }?.availabilityChanged(id, item.available)
     }
 
-    fun deleteTopping(id: String) = updateToppings { list -> list.filterNot { it.id == id } }
+    /** The menu from FireLord replaces the tablet's. Called by the sync. */
+    fun applyServerMenu(menu: List<MenuItem>, toppings: List<Topping>, taxBasisPoints: BasisPoints) {
+        val state = _state.updateAndGet {
+            it.copy(menu = menu, toppings = toppings, settings = it.settings.copy(taxBasisPoints = taxBasisPoints))
+        }
+        enqueue {
+            dao.replaceMenu(menu.toMenuEntities())
+            dao.replaceToppings(toppings.toToppingEntities())
+            dao.upsertSettings(state.settings.toEntity())
+        }
+    }
+
+    /** FireLord sets the tax rate while connected. Called by the sync. */
+    fun applyServerTax(taxBasisPoints: BasisPoints) {
+        if (_state.value.settings.taxBasisPoints == taxBasisPoints) return
+        val settings = _state.updateAndGet { it.copy(settings = it.settings.copy(taxBasisPoints = taxBasisPoints)) }.settings
+        enqueue { dao.upsertSettings(settings.toEntity()) }
+    }
 
     // ---------------------------------------------------------------- settings
 
     fun updateSettings(settings: Settings) {
-        _state.update { it.copy(settings = settings) }
-        enqueue { dao.upsertSettings(settings.toEntity()) }
+        // While connected, the tax rate comes from FireLord and can't be changed here.
+        val saved = if (menuMaster?.isConnected == true) {
+            settings.copy(taxBasisPoints = _state.value.settings.taxBasisPoints)
+        } else {
+            settings
+        }
+        _state.update { it.copy(settings = saved) }
+        enqueue { dao.upsertSettings(saved.toEntity()) }
     }
 
-    /** Deletes every order and restores the starter menu. Shop settings are kept. */
-    fun resetAll() {
+    /**
+     * Deletes every order and restores the starter menu. Shop settings are kept.
+     * Refused (returns false) while connected to FireLord: disconnect first.
+     */
+    fun resetAll(): Boolean {
+        if (menuMaster?.isConnected == true) return false
         _state.update {
             PosState(settings = it.settings, loaded = true, storageWarning = it.storageWarning)
         }
@@ -262,6 +312,7 @@ class PosStore(
                 PosState.FIRST_ORDER_NUMBER
             )
         }
+        return true
     }
 
     fun dismissStorageWarning() {
@@ -269,7 +320,9 @@ class PosStore(
         enqueue { dao.putMeta(MetaEntity(PosDao.KEY_IMPORT_WARNING, "")) }
     }
 
-    /** Suspends until every write queued so far has finished. Used by tests. */
+    /** Suspends until every write queued so far has finished. */
+    suspend fun flush() = awaitWrites()
+
     internal suspend fun awaitWrites() {
         val done = CompletableDeferred<Unit>()
         writes.send { done.complete(Unit) }
@@ -278,14 +331,22 @@ class PosStore(
 
     // --------------------------------------------------------------- internals
 
-    private fun updateMenu(block: (List<MenuItem>) -> List<MenuItem>) {
-        val menu = _state.updateAndGet { it.copy(menu = block(it.menu)) }.menu
-        enqueue { dao.replaceMenu(menu.toMenuEntities()) }
-    }
-
-    private fun updateToppings(block: (List<Topping>) -> List<Topping>) {
-        val toppings = _state.updateAndGet { it.copy(toppings = block(it.toppings)) }.toppings
-        enqueue { dao.replaceToppings(toppings.toToppingEntities()) }
+    private suspend fun changeMenu(
+        menu: (List<MenuItem>) -> List<MenuItem> = { it },
+        toppings: (List<Topping>) -> List<Topping> = { it }
+    ): MenuChange {
+        val master = menuMaster
+        if (master != null && master.isConnected) {
+            val current = _state.value
+            // On success the sync has already put the server's copy into the store.
+            return master.publish(menu(current.menu), toppings(current.toppings))
+        }
+        val state = _state.updateAndGet { it.copy(menu = menu(it.menu), toppings = toppings(it.toppings)) }
+        enqueue {
+            dao.replaceMenu(state.menu.toMenuEntities())
+            dao.replaceToppings(state.toppings.toToppingEntities())
+        }
+        return MenuChange.Saved
     }
 
     private fun enqueue(write: suspend () -> Unit) {
