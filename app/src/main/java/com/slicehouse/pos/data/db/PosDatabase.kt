@@ -11,6 +11,7 @@ import androidx.room.TypeConverters
  * Version history (each version's layout is saved in app/schemas/):
  * 1. Menu, toppings, settings, orders (v1.5).
  * 2. Staff accounts and who took / refunded each order.
+ * 3. Whether each order and refund has been uploaded to FireLord.
  *
  * Upgrades run automatically and keep every existing row.
  */
@@ -24,9 +25,9 @@ import androidx.room.TypeConverters
         MetaEntity::class,
         StaffEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2)]
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)]
 )
 @TypeConverters(Converters::class)
 abstract class PosDatabase : RoomDatabase() {

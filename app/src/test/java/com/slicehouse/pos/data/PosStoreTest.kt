@@ -59,7 +59,7 @@ class PosStoreTest {
         store
     }
 
-    private fun PosStore.flush() = runBlocking { withTimeout(10_000) { awaitWrites() } }
+    private fun PosStore.flushNow() = runBlocking { withTimeout(10_000) { awaitWrites() } }
 
     @Test
     fun freshInstallStartsWithTheStarterMenu() {
@@ -76,7 +76,7 @@ class PosStoreTest {
         store.addLine(CartLine("", "p1", "4in1", "P", unitPrice = 2300, qty = 2, toppings = listOf("Extra cheese")))
         store.setPickupTime("19:30")
         val order = store.completeOrder(PaymentMethod.CASH, cashReceived = 6000)!!
-        store.flush()
+        store.flushNow()
 
         val reopened = openStore().state.value
         val saved = reopened.orders.single()
@@ -91,10 +91,10 @@ class PosStoreTest {
         store.addLine(CartLine("", "d1", "Coca-Cola", "C", unitPrice = 250, qty = 1))
         val order = store.completeOrder(PaymentMethod.CARD, 0, takenBy = "Aina")!!
         store.refund(order.id, approvedBy = "Nasran")
-        store.saveMenuItem(SampleData.menu.first().copy(price = 2200))
-        store.deleteMenuItem("x4")
+        runBlocking { store.saveMenuItem(SampleData.menu.first().copy(price = 2200)) }
+        runBlocking { store.deleteMenuItem("x4") }
         store.updateSettings(store.state.value.settings.copy(taxBasisPoints = 600))
-        store.flush()
+        store.flushNow()
 
         val reopened = openStore().state.value
         assertEquals(OrderStatus.REFUNDED, reopened.orders.single().status)
@@ -114,7 +114,7 @@ class PosStoreTest {
         store.addLine(CartLine("", "d1", "Coca-Cola", "C", unitPrice = 250, qty = 1))
         store.completeOrder(PaymentMethod.CARD, 0)
         store.resetAll()
-        store.flush()
+        store.flushNow()
 
         val reopened = openStore().state.value
         assertTrue(reopened.orders.isEmpty())
@@ -150,7 +150,7 @@ class PosStoreTest {
         assertEquals("{ half written fil", legacy.readText())
 
         store.dismissStorageWarning()
-        store.flush()
+        store.flushNow()
         assertNull(openStore().state.value.storageWarning)
         assertTrue(legacy.exists())
     }
