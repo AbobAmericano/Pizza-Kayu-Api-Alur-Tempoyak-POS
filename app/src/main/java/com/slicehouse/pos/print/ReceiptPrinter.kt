@@ -29,7 +29,7 @@ object ReceiptPrinter {
         if (settings.locationUrl.isNotBlank()) builder.centeredWrapped("Maps: ${compactUrl(settings.locationUrl)}")
 
         builder.divider()
-        builder.line("Order #${order.number}")
+        builder.line("Order #${order.label}")
         builder.line(receiptDate(order.createdAt))
         builder.line(
             order.type.label + if (order.table.isNotBlank()) "  |  Table ${order.table}" else ""
@@ -96,7 +96,7 @@ object ReceiptPrinter {
         builder.centeredBold(settings.shopName)
         builder.centeredBold("KITCHEN")
         builder.divider()
-        builder.line("Order #${order.number}")
+        builder.line("Order #${order.label}")
         builder.line(receiptDate(order.createdAt))
         builder.line(
             order.type.label + if (order.table.isNotBlank()) "  |  Table ${order.table}" else ""

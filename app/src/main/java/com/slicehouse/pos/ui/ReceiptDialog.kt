@@ -78,7 +78,7 @@ fun ReceiptDialog(order: Order, settings: Settings, onDismiss: () -> Unit) {
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "Order #${order.number} · ${money(order.total, settings.currency)}",
+                        "Order #${order.label} · ${money(order.total, settings.currency)}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center

@@ -26,6 +26,8 @@ class FakeFireLord : Dispatcher() {
     var toppings = listOf<ToppingDto>()
 
     val orders = linkedMapOf<String, OrderDto>()
+    /** Online orders customers placed. Finished ones stay here but aren't listed. */
+    val online = linkedMapOf<String, OnlineOrderDto>()
     val refunds = mutableMapOf<String, RefundUpload>()
     val requests = mutableListOf<String>()
 
@@ -81,14 +83,44 @@ class FakeFireLord : Dispatcher() {
                 }
                 ok(json.encodeToString(OrdersResponse.serializer(), OrdersResponse(results)))
             }
+            path == "online-orders" -> ok(json.encodeToString(
+                OnlineOrdersResponse.serializer(),
+                OnlineOrdersResponse(online.values.filter { it.status !in setOf("COMPLETED", "CANCELLED") })
+            ))
+            path.startsWith("online-orders/") && path.endsWith("/status") -> {
+                val id = path.removePrefix("online-orders/").removeSuffix("/status")
+                val order = online[id] ?: return error(404, "No such order")
+                val change = json.decodeFromString(StatusUpload.serializer(), body)
+                if (change.status == "COMPLETED" && change.payment.isBlank()) {
+                    return error(409, "Choose how the customer paid: cash or card.")
+                }
+                val updated = order.copy(status = change.status, payment = change.payment)
+                online[id] = updated
+                ok(json.encodeToString(OnlineOrderDto.serializer(), updated))
+            }
             path.startsWith("orders/") && path.endsWith("/refund") -> {
                 val id = path.removePrefix("orders/").removeSuffix("/refund")
-                if (id !in orders) return error(404, "No such order")
+                if (id !in orders && id !in online) return error(404, "No such order")
                 refunds[id] = json.decodeFromString(RefundUpload.serializer(), body)
                 ok("""{"id": "$id", "status": "REFUNDED", "refunded_at": null, "refunded_by": ""}""")
             }
             else -> error(404, "Not found")
         }
+    }
+
+    /** Pretend a customer ordered on the web. */
+    @Synchronized
+    fun customerOrders(number: Int, status: String = "PENDING"): OnlineOrderDto {
+        val order = OnlineOrderDto(
+            id = java.util.UUID.randomUUID().toString(), number = number, label = "W$number", status = status,
+            createdAt = "2026-11-13T10:05:00Z", pickupAt = "2026-11-13T10:45:00Z", pickupTime = "18:45",
+            customerName = "Siti", customerPhone = "0123456789", subtotalSen = 3300, taxSen = 264, totalSen = 3564,
+            lines = listOf(
+                OrderLineDto("0", "p1", "4in1", "P", 3300, 1, "12\"", null, listOf("Extra cheese"), "")
+            )
+        )
+        online[order.id] = order
+        return order
     }
 
     /** Pretend the owner changed the menu on the web. */

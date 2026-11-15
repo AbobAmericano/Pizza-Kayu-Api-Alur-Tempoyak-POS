@@ -26,6 +26,15 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 
+/** The Online screen's list. [error] is set when the last refresh failed. */
+data class OnlineOrders(
+    val orders: List<OnlineOrderDto> = emptyList(),
+    val loaded: Boolean = false,
+    val error: String? = null
+) {
+    val waiting: Int get() = orders.count { it.status == "PENDING" }
+}
+
 /** What the Settings screen shows about the FireLord connection. */
 data class SyncStatus(
     val loaded: Boolean = false,
@@ -88,6 +97,16 @@ class SyncManager(
 
     private val _status = MutableStateFlow(SyncStatus())
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
+
+    private val _onlineOrders = MutableStateFlow(OnlineOrders())
+
+    /** Online orders that still need the shop, refreshed every few seconds while the app is open. */
+    val onlineOrders: StateFlow<OnlineOrders> = _onlineOrders.asStateFlow()
+
+    /** Called when a new order is waiting to be accepted (the app plays a sound). */
+    var onNewOnlineOrder: () -> Unit = {}
+    private var waitingSeen: Set<String>? = null
+    private val onlineMutex = Mutex()
 
     init {
         scope.launch {
@@ -156,6 +175,8 @@ class SyncManager(
             pendingAvailability.clear()
             listOf(KEY_DEVICE_KEY, KEY_SHOP, KEY_MENU_VERSION, KEY_PENDING_AVAILABILITY).forEach { dao.deleteMeta(it) }
             _status.update { it.copy(connected = false, shopName = "", error = null, revoked = false) }
+            _onlineOrders.value = OnlineOrders()
+            waitingSeen = null
         }
     }
 
@@ -214,6 +235,66 @@ class SyncManager(
             failed(e)
             false
         }
+    }
+
+    // ---------------------------------------------------------- online orders
+
+    /** Refreshes [onlineOrders] every [intervalMillis] while connected. Runs until cancelled. */
+    suspend fun runOnlineEvery(intervalMillis: Long = ONLINE_INTERVAL_MILLIS) {
+        while (true) {
+            if (connection != null) refreshOnline() else _onlineOrders.value = OnlineOrders()
+            delay(intervalMillis)
+        }
+    }
+
+    suspend fun refreshOnline(): Boolean {
+        ready.await()
+        val conn = connection ?: return false
+        return onlineMutex.withLock {
+            try {
+                val orders = api.onlineOrders(conn.server, conn.key).orders
+                val waiting = orders.filter { it.status == "PENDING" }.map { it.id }.toSet()
+                val seen = waitingSeen
+                if (seen != null && (waiting - seen).isNotEmpty()) onNewOnlineOrder()
+                waitingSeen = waiting
+                _onlineOrders.value = OnlineOrders(orders = orders, loaded = true)
+                true
+            } catch (e: ApiException) {
+                if (e is ApiException.Unauthorized) failed(e)
+                _onlineOrders.update {
+                    it.copy(error = if (e is ApiException.Offline) "No internet, so new online orders can't come in." else e.message)
+                }
+                false
+            }
+        }
+    }
+
+    /**
+     * Moves an online order on (see FireLord's pos/online.py for which moves are allowed).
+     * COMPLETED needs [payment] ("CASH" or "CARD") and also saves the sale on this tablet.
+     * Returns null when done, or what went wrong.
+     */
+    suspend fun setOnlineStatus(
+        order: OnlineOrderDto,
+        status: String,
+        payment: String = "",
+        by: String = "",
+        reason: String = ""
+    ): String? {
+        ready.await()
+        val conn = connection ?: return "This tablet isn't connected to FireLord."
+        val problem = try {
+            val updated = api.setOnlineStatus(conn.server, conn.key, order.id, StatusUpload(status, payment, by.take(60), reason))
+            if (updated.status == "COMPLETED") store.recordOnlineSale(updated.toOrder(clock()).copy(takenBy = by))
+            null
+        } catch (e: ApiException.Offline) {
+            "No internet. The order wasn't changed."
+        } catch (e: ApiException) {
+            if (e is ApiException.Unauthorized) failed(e)
+            e.message ?: "FireLord refused the change."
+        }
+        refreshOnline()
+        return problem
     }
 
     // ------------------------------------------------------------------- menu
@@ -431,6 +512,7 @@ class SyncManager(
 
     companion object {
         const val SYNC_INTERVAL_MILLIS = 60_000L
+        const val ONLINE_INTERVAL_MILLIS = 15_000L
         const val BATCH_SIZE = 200 // the server takes up to 200 orders per request
         private const val MAX_BATCHES = 100
         private const val MAX_MENU_RETRIES = 3

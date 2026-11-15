@@ -313,6 +313,65 @@ class SyncManagerTest {
         assertEquals(1234L, store.state.value.menu.first().price)
     }
 
+    // ---------------------------------------------------------- online orders
+
+    @Test
+    fun newOnlineOrdersShowUpAndChime() {
+        var chimes = 0
+        sync.onNewOnlineOrder = { chimes++ }
+        connect()
+        fake.customerOrders(1)
+
+        runBlocking { sync.refreshOnline() }
+        assertEquals(1, sync.onlineOrders.value.waiting)
+        assertEquals("no chime for what was already there when the screen first loaded", 0, chimes)
+
+        fake.customerOrders(2)
+        runBlocking { sync.refreshOnline() }
+        runBlocking { sync.refreshOnline() }
+        assertEquals(2, sync.onlineOrders.value.waiting)
+        assertEquals(1, chimes)
+    }
+
+    @Test
+    fun pickupSavesTheSaleOnTheTabletOnce() {
+        connect()
+        val order = fake.customerOrders(7, status = "READY")
+        val posts = postsTo("orders")
+
+        val problem = runBlocking { sync.setOnlineStatus(order, "COMPLETED", payment = "CASH", by = "Aina") }
+
+        assertNull(problem)
+        assertTrue(sync.onlineOrders.value.orders.isEmpty())
+        val sale = store.state.value.orders.first { it.id == order.id }
+        assertTrue(sale.online)
+        assertEquals("W7", sale.label)
+        assertEquals("Aina", sale.takenBy)
+        assertEquals(PaymentMethod.CASH, sale.payment)
+        assertEquals(3564L, sale.cashReceived)
+        assertEquals(listOf("Extra cheese"), sale.lines.single().toppings)
+
+        syncNow()
+        assertEquals("it's already on FireLord, so it isn't uploaded again", posts, postsTo("orders"))
+        waitUntil("nothing waiting") { sync.status.value.waiting == 0 }
+
+        store.refund(order.id, approvedBy = "Nasran")
+        syncNow()
+        assertEquals("Nasran", fake.refunds.getValue(order.id).refundedBy)
+    }
+
+    @Test
+    fun refusedMovesAreExplained() {
+        connect()
+        val order = fake.customerOrders(3, status = "READY")
+        val problem = runBlocking { sync.setOnlineStatus(order, "COMPLETED") }
+        assertTrue(problem!!, problem.contains("cash or card"))
+        assertTrue(store.state.value.orders.none { it.id == order.id })
+
+        fake.offline = true
+        assertEquals("No internet. The order wasn't changed.", runBlocking { sync.setOnlineStatus(order, "CANCELLED") })
+    }
+
     // ---------------------------------------------------------------- helpers
 
     @Test

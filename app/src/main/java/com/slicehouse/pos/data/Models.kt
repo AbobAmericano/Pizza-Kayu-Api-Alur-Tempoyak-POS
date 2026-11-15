@@ -143,9 +143,14 @@ data class Order(
     /** Staff member who took the order. Empty for orders from before staff PINs. */
     val takenBy: String = "",
     /** Owner who approved the refund, or null. */
-    val refundedBy: String? = null
+    val refundedBy: String? = null,
+    /** A customer ordered it on the web (FireLord) and paid at pickup. */
+    val online: Boolean = false
 ) {
     val itemCount: Int get() = lines.sumOf { it.qty }
+
+    /** The number as shown: online orders get a W ("web") so they never look like register ones. */
+    val label: String get() = if (online) "W$number" else number.toString()
 }
 
 fun itemCountLabel(count: Int): String = "$count ${if (count == 1) "item" else "items"}"

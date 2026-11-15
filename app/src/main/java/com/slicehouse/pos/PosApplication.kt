@@ -14,10 +14,11 @@ class PosApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         val sync = container.sync // hooks the sync into the store before any screen opens
-        // Sync every minute while the app is on screen; stop when it goes to the background.
+        // Sync every minute (online orders more often) while the app is on screen; stop in the background.
         ProcessLifecycleOwner.get().lifecycleScope.launch {
             ProcessLifecycleOwner.get().repeatOnLifecycle(Lifecycle.State.STARTED) {
-                sync.runEvery()
+                launch { sync.runEvery() }
+                launch { sync.runOnlineEvery() } // online orders: every 15 seconds
             }
         }
     }

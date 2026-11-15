@@ -168,7 +168,7 @@ private fun OrderCard(order: Order, currency: String, onClick: () -> Unit) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("#${order.number}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("#${order.label}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     if (order.status == OrderStatus.REFUNDED) {
                         Spacer(Modifier.width(8.dp))
                         Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.errorContainer) {
@@ -235,7 +235,7 @@ private fun OrderDetailDialog(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(
-                                "Order #${order.number}",
+                                "Order #${order.label}",
                                 style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.Bold
                             )

@@ -82,6 +82,30 @@ class MigrationTest {
         db.close()
     }
 
+    @Test
+    fun version3OrdersAreNotOnlineOrders() {
+        helper.createDatabase(DB, 3).apply {
+            execSQL(
+                """INSERT INTO orders (id, number, createdAt, type, tableLabel, customerName, customerPhone,
+                   address, subtotalSen, taxSen, totalSen, payment, cashReceivedSen, changeSen, status,
+                   note, pickupTime, refundedAt, takenBy, refundedBy, syncState, refundSyncState)
+                   VALUES ('o3', 1020, 1731400000000, 'TAKEAWAY', '', '', '', '', 2000, 160, 2160,
+                   'CASH', 2160, 0, 'COMPLETED', '', '', NULL, 'Aina', NULL, 1, 0)"""
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB, 4, true)
+
+        db.query("SELECT number, syncState, online FROM orders").use { row ->
+            assertTrue(row.moveToFirst())
+            assertEquals(1020, row.getInt(0))
+            assertEquals(1, row.getInt(1))
+            assertEquals(0, row.getInt(2))
+        }
+        db.close()
+    }
+
     private companion object {
         const val DB = "migration-test.db"
     }

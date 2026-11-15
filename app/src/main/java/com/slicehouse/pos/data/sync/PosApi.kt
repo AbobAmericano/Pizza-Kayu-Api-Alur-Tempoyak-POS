@@ -56,6 +56,14 @@ class PosApi(
         call(server, "orders/$orderId/refund", key, "POST", encode(RefundUpload.serializer(), upload), ErrorResponse.serializer())
     }
 
+    /** Online orders that still need the shop, oldest pickup first. */
+    suspend fun onlineOrders(server: HttpUrl, key: String): OnlineOrdersResponse =
+        call(server, "online-orders", key, "GET", null, OnlineOrdersResponse.serializer())
+
+    /** Moves an online order on. A 409 ([ApiException.Conflict]) means the move isn't allowed any more. */
+    suspend fun setOnlineStatus(server: HttpUrl, key: String, orderId: String, upload: StatusUpload): OnlineOrderDto =
+        call(server, "online-orders/$orderId/status", key, "POST", encode(StatusUpload.serializer(), upload), OnlineOrderDto.serializer())
+
     private fun <T> encode(serializer: KSerializer<T>, value: T) = json.encodeToString(serializer, value)
 
     private suspend fun <T> call(

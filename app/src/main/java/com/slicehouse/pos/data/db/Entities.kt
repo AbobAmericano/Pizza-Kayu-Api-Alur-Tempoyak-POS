@@ -89,7 +89,9 @@ data class OrderEntity(
     /** Upload to FireLord: [SyncState.PENDING], [SyncState.DONE] or [SyncState.REJECTED] (v3). */
     @ColumnInfo(defaultValue = "0") val syncState: Int = SyncState.PENDING,
     /** Whether the refund has reached FireLord. Only meaningful for refunded orders (v3). */
-    @ColumnInfo(defaultValue = "0") val refundSyncState: Int = SyncState.PENDING
+    @ColumnInfo(defaultValue = "0") val refundSyncState: Int = SyncState.PENDING,
+    /** Placed by a customer on the web and paid at pickup (v4). Shown as "W" + number. */
+    @ColumnInfo(defaultValue = "0") val online: Boolean = false
 )
 
 /** Values of the sync columns on [OrderEntity]. */

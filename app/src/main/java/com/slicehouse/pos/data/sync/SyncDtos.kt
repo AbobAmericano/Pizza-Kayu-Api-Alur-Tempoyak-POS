@@ -122,3 +122,37 @@ data class RefundUpload(
 
 @Serializable
 data class ErrorResponse(val detail: String = "")
+
+// ---------------------------------------------------------- online orders
+
+/** An order a customer placed on the web. [status] is PENDING, RECEIVED, PREPARING, BAKING or READY. */
+@Serializable
+data class OnlineOrderDto(
+    val id: String,
+    val number: Int,
+    val label: String,
+    val status: String,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("pickup_at") val pickupAt: String? = null,
+    @SerialName("pickup_time") val pickupTime: String = "",
+    @SerialName("customer_name") val customerName: String = "",
+    @SerialName("customer_phone") val customerPhone: String = "",
+    val note: String = "",
+    @SerialName("subtotal_sen") val subtotalSen: Long,
+    @SerialName("tax_sen") val taxSen: Long,
+    @SerialName("total_sen") val totalSen: Long,
+    val payment: String = "",
+    @SerialName("cancel_reason") val cancelReason: String = "",
+    val lines: List<OrderLineDto> = emptyList()
+)
+
+@Serializable
+data class OnlineOrdersResponse(val orders: List<OnlineOrderDto>)
+
+@Serializable
+data class StatusUpload(
+    val status: String,
+    val payment: String = "",
+    val by: String = "",
+    val reason: String = ""
+)
