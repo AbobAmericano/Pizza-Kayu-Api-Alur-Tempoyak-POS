@@ -1,12 +1,17 @@
 package com.slicehouse.pos.data.sync
 
+import com.slicehouse.pos.data.CartLine
 import com.slicehouse.pos.data.Category
 import com.slicehouse.pos.data.MenuItem
+import com.slicehouse.pos.data.Order
 import com.slicehouse.pos.data.OrderStatus
+import com.slicehouse.pos.data.OrderType
+import com.slicehouse.pos.data.PaymentMethod
 import com.slicehouse.pos.data.Topping
 import com.slicehouse.pos.data.db.OrderEntity
 import com.slicehouse.pos.data.db.OrderLineEntity
 import java.time.Instant
+import java.time.OffsetDateTime
 import java.util.UUID
 
 // Converting between the tablet's data and the server's JSON. Text is cut to
@@ -92,5 +97,38 @@ fun OrderEntity.toDto(lines: List<OrderLineEntity>): OrderDto {
                 note = line.note.take(300)
             )
         }
+    )
+}
+
+fun parseTime(value: String?): Long? =
+    value?.let { runCatching { OffsetDateTime.parse(it).toInstant().toEpochMilli() }.getOrNull() }
+
+/** A picked-up online order as a tablet [Order], so it shows in Orders and the day's totals. */
+fun OnlineOrderDto.toOrder(fallbackTime: Long): Order {
+    val paid = PaymentMethod.entries.firstOrNull { it.name == payment } ?: PaymentMethod.CASH
+    return Order(
+        id = id,
+        number = number,
+        createdAt = parseTime(createdAt) ?: fallbackTime,
+        lines = lines.map { line ->
+            CartLine(
+                lineId = line.lineId, itemId = line.itemId, name = line.name, emoji = line.emoji,
+                unitPrice = line.unitPriceSen, qty = line.qty, sizeLabel = line.sizeLabel,
+                crustLabel = line.crustLabel, toppings = line.toppings, note = line.note
+            )
+        },
+        type = OrderType.TAKEAWAY,
+        customerName = customerName,
+        customerPhone = customerPhone,
+        subtotal = subtotalSen,
+        tax = taxSen,
+        total = totalSen,
+        payment = paid,
+        cashReceived = if (paid == PaymentMethod.CASH) totalSen else 0,
+        change = 0,
+        status = OrderStatus.COMPLETED,
+        note = note,
+        pickupTime = pickupTime,
+        online = true
     )
 }

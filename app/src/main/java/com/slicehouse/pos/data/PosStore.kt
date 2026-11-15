@@ -2,6 +2,7 @@ package com.slicehouse.pos.data
 
 import com.slicehouse.pos.data.db.MetaEntity
 import com.slicehouse.pos.data.db.PosDao
+import com.slicehouse.pos.data.db.SyncState
 import com.slicehouse.pos.data.db.lineEntities
 import com.slicehouse.pos.data.db.toEntity
 import com.slicehouse.pos.data.db.toMenuEntities
@@ -209,6 +210,21 @@ class PosStore(
         enqueue { dao.saveOrder(order.toEntity(), order.lineEntities(), next) }
         onOrdersChanged()
         return order
+    }
+
+    /**
+     * An online order was picked up and paid. It's already on FireLord, so it's
+     * saved as uploaded; it counts in this tablet's orders and totals like any sale.
+     */
+    fun recordOnlineSale(order: Order) {
+        if (_state.value.orders.any { it.id == order.id }) return
+        _state.update { state -> state.copy(orders = (listOf(order) + state.orders).sortedByDescending { it.createdAt }) }
+        enqueue {
+            dao.saveOnlineOrder(
+                order.toEntity().copy(syncState = SyncState.DONE, refundSyncState = SyncState.DONE),
+                order.lineEntities()
+            )
+        }
     }
 
     /** Marks an order refunded. [approvedBy] is the owner who approved it. */

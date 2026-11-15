@@ -94,6 +94,21 @@ While connected:
 - The tax rate is set on FireLord. **Reset all data** needs disconnecting first.
 - If the owner disconnects the tablet on FireLord, it stops syncing and says so.
 
+### Online orders
+
+Customers can order from the shop's link or QR code (FireLord → Pizza POS → Online → Hours, slots
+and QR code) and pay at pickup. On a connected tablet the **Online** tab shows those orders, with a
+badge and a beep when a new one is waiting:
+
+1. **Accept** (or **Reject**) the order. Nothing is cooked until the shop accepts it.
+2. **Start preparing** → **Into the oven** → **Ready for pickup**. The customer's tracking page
+   follows each step.
+3. When the customer pays: **Paid cash** or **Paid card**. The order is then saved on the tablet as
+   `#W12` (W = web) and counts in the day's orders and totals.
+
+Orders can be cancelled until they go in the oven, and a ready order can be marked **Not
+collected**. The same buttons are on FireLord's web board, so either can be used.
+
 Release builds only connect over `https://`. Debug builds also allow `http://`, e.g.
 `http://10.0.2.2:8000` to reach a FireLord running on the PC from the emulator.
 

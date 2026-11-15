@@ -1,6 +1,8 @@
 package com.slicehouse.pos
 
 import android.content.Context
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.Build
 import com.slicehouse.pos.data.PosStore
 import com.slicehouse.pos.data.auth.StaffAuth
@@ -42,6 +44,16 @@ class AppContainer(context: Context) {
         ).also { sync ->
             store.menuMaster = sync
             store.onOrdersChanged = { sync.requestSync() }
+            sync.onNewOnlineOrder = ::chime
         }
+    }
+
+    /** Two short beeps when a new online order comes in. */
+    private val tones: ToneGenerator? by lazy {
+        runCatching { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100) }.getOrNull()
+    }
+
+    private fun chime() {
+        runCatching { tones?.startTone(ToneGenerator.TONE_PROP_BEEP2, 600) }
     }
 }

@@ -2,6 +2,7 @@ package com.slicehouse.pos.data.db
 
 import androidx.room.Dao
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Upsert
@@ -130,6 +131,15 @@ abstract class PosDao {
         insertOrders(listOf(order))
         insertOrderLines(lines)
         putMeta(MetaEntity(KEY_NEXT_ORDER_NUMBER, nextOrderNumber.toString()))
+    }
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    protected abstract suspend fun insertOrderIfNew(order: OrderEntity): Long
+
+    /** Keeps a copy of an online order once it's picked up. Saving it twice changes nothing. */
+    @Transaction
+    open suspend fun saveOnlineOrder(order: OrderEntity, lines: List<OrderLineEntity>) {
+        if (insertOrderIfNew(order) != -1L) insertOrderLines(lines)
     }
 
     /** Deletes every order and puts the starter menu back. Settings are kept. */

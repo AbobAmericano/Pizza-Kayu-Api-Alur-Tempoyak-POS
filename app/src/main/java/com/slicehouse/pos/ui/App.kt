@@ -24,6 +24,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.PointOfSale
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material.icons.rounded.RestaurantMenu
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Settings
@@ -65,6 +68,7 @@ import com.slicehouse.pos.ui.theme.isDarkTheme
 enum class Destination(val label: String, val icon: ImageVector) {
     REGISTER("Register", Icons.Rounded.PointOfSale),
     ORDERS("Orders", Icons.AutoMirrored.Rounded.ReceiptLong),
+    ONLINE("Online", Icons.Rounded.Public),
     MENU("Menu", Icons.Rounded.RestaurantMenu),
     SETTINGS("Settings", Icons.Rounded.Settings)
 }
@@ -72,9 +76,13 @@ enum class Destination(val label: String, val icon: ImageVector) {
 @Composable
 fun PosApp(
     viewModel: AppViewModel = viewModel(factory = PosViewModelFactory),
-    authViewModel: AuthViewModel = viewModel(factory = PosViewModelFactory)
+    authViewModel: AuthViewModel = viewModel(factory = PosViewModelFactory),
+    onlineViewModel: OnlineViewModel = viewModel(factory = PosViewModelFactory)
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val online by onlineViewModel.orders.collectAsStateWithLifecycle()
+    // Orders waiting to be accepted show as a number on the Online tab.
+    val badges = mapOf(Destination.ONLINE to online.waiting)
     val auth by authViewModel.state.collectAsStateWithLifecycle()
     val recoveryCode by authViewModel.newRecoveryCode.collectAsStateWithLifecycle()
     var destination by rememberSaveable { mutableStateOf(Destination.REGISTER) }
@@ -134,13 +142,13 @@ fun PosApp(
                     contentColor = MaterialTheme.colorScheme.onBackground,
                     bottomBar = {
                         if (!wide) {
-                            BottomBar(destination, onLock = lock) { destination = it }
+                            BottomBar(destination, badges, onLock = lock) { destination = it }
                         }
                     }
                 ) { padding ->
                     Row(Modifier.fillMaxSize().padding(padding)) {
                         if (wide) {
-                            NavRail(destination, signedIn.name, onLock = lock) { destination = it }
+                            NavRail(destination, signedIn.name, badges, onLock = lock) { destination = it }
                         }
                         Box(Modifier.weight(1f).fillMaxHeight()) {
                             when (destination) {
@@ -150,6 +158,10 @@ fun PosApp(
                                 )
                                 Destination.ORDERS -> OrdersScreen(
                                     onGoToRegister = { destination = Destination.REGISTER }
+                                )
+                                Destination.ONLINE -> OnlineScreen(
+                                    currency = state.settings.currency,
+                                    onGoToSettings = { destination = Destination.SETTINGS }
                                 )
                                 Destination.MENU -> MenuScreen()
                                 Destination.SETTINGS -> SettingsScreen()
@@ -186,7 +198,13 @@ fun PosApp(
 }
 
 @Composable
-private fun NavRail(current: Destination, signedInName: String, onLock: () -> Unit, onSelect: (Destination) -> Unit) {
+private fun NavRail(
+    current: Destination,
+    signedInName: String,
+    badges: Map<Destination, Int>,
+    onLock: () -> Unit,
+    onSelect: (Destination) -> Unit
+) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -214,7 +232,7 @@ private fun NavRail(current: Destination, signedInName: String, onLock: () -> Un
             )
             Spacer(Modifier.height(30.dp))
             Destination.entries.forEach { item ->
-                RailItem(item, item == current) { onSelect(item) }
+                RailItem(item, item == current, badges[item] ?: 0) { onSelect(item) }
                 Spacer(Modifier.height(6.dp))
             }
             Spacer(Modifier.weight(1f))
@@ -248,7 +266,7 @@ private fun LockRailItem(name: String, onLock: () -> Unit) {
 }
 
 @Composable
-private fun RailItem(destination: Destination, selected: Boolean, onClick: () -> Unit) {
+private fun RailItem(destination: Destination, selected: Boolean, badge: Int, onClick: () -> Unit) {
     val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     Column(
         modifier = Modifier
@@ -260,7 +278,7 @@ private fun RailItem(destination: Destination, selected: Boolean, onClick: () ->
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(destination.icon, contentDescription = destination.label, tint = tint, modifier = Modifier.size(24.dp))
+        NavIcon(destination, badge, tint)
         Spacer(Modifier.height(4.dp))
         Text(
             destination.label,
@@ -272,13 +290,18 @@ private fun RailItem(destination: Destination, selected: Boolean, onClick: () ->
 }
 
 @Composable
-private fun BottomBar(current: Destination, onLock: () -> Unit, onSelect: (Destination) -> Unit) {
+private fun BottomBar(
+    current: Destination,
+    badges: Map<Destination, Int>,
+    onLock: () -> Unit,
+    onSelect: (Destination) -> Unit
+) {
     NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
         Destination.entries.forEach { item ->
             NavigationBarItem(
                 selected = item == current,
                 onClick = { onSelect(item) },
-                icon = { Icon(item.icon, contentDescription = item.label) },
+                icon = { NavIcon(item, badges[item] ?: 0, androidx.compose.material3.LocalContentColor.current) },
                 label = { Text(item.label) }
             )
         }
@@ -288,6 +311,14 @@ private fun BottomBar(current: Destination, onLock: () -> Unit, onSelect: (Desti
             icon = { Icon(Icons.Rounded.Lock, contentDescription = "Lock") },
             label = { Text("Lock") }
         )
+    }
+}
+
+@Composable
+private fun NavIcon(destination: Destination, badge: Int, tint: Color) {
+    val description = if (badge > 0) "${destination.label}, $badge waiting" else destination.label
+    BadgedBox(badge = { if (badge > 0) Badge { Text(badge.toString()) } }) {
+        Icon(destination.icon, contentDescription = description, tint = tint, modifier = Modifier.size(24.dp))
     }
 }
 
