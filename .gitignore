@@ -17,3 +17,4 @@ web/.env
 web/.env.local
 service-account.json
 web/service-account.json
+.firebase/
