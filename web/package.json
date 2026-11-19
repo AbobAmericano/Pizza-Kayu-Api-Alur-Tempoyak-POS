@@ -1,0 +1,28 @@
+{
+  "name": "pizza-kayu-api-customer-web",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Customer ordering web app for Pizza Kayu Api Dungun (Alur Tempoyak)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "seed": "node scripts/seed-firestore.mjs",
+    "admin:claim": "node scripts/set-admin-claim.mjs"
+  },
+  "dependencies": {
+    "firebase": "^10.14.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "firebase-admin": "^12.7.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "vite": "^6.0.5"
+  }
+}

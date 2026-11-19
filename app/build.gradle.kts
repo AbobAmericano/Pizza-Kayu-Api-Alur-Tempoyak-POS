@@ -4,6 +4,13 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
+    // google-services.json is deliberately not committed. The plugin is applied only
+    // when the owner drops the real file into app/, so CI and fresh clones still build.
+    id("com.google.gms.google-services") apply false
+}
+
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
 }
 
 ksp {
@@ -93,6 +100,11 @@ dependencies {
 
     // Talking to the FireLord server (step 4 sync).
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Google Firebase: Cloud Firestore is the web ordering channel; Auth identifies admin tablets.
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-auth-ktx")
 
     val roomVersion = "2.6.1"
     implementation("androidx.room:room-runtime:$roomVersion")

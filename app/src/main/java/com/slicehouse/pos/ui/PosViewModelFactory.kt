@@ -30,6 +30,7 @@ val PosViewModelFactory: ViewModelProvider.Factory = viewModelFactory {
     initializer { MenuViewModel(store()) }
     initializer { SettingsViewModel(store()) }
     initializer { SyncViewModel(container().sync) }
+    initializer { FirebaseViewModel(container().firebase) }
     initializer {
         val auth = container().auth
         OnlineViewModel(container().sync, staffName = { auth.state.value.signedIn?.name.orEmpty() })

@@ -1,0 +1,29 @@
+{
+  "_comment": "COPY THIS FILE TO app/google-services.json AND REPLACE EVERY PLACEHOLDER with your Firebase web/Android app config (Firebase console → Project settings → Your apps). Never commit the real file.",
+  "project_info": {
+    "project_number": "000000000000",
+    "project_id": "your-firebase-project-id",
+    "storage_bucket": "your-firebase-project-id.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+        "android_client_info": { "package_name": "com.slicehouse.pos" }
+      },
+      "api_key": [{ "current_key": "YOUR_ANDROID_API_KEY" }],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_info": { "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000", "android_client_info": { "package_name": "com.slicehouse.pos" } },
+              "api_key": [{ "current_key": "YOUR_ANDROID_API_KEY" }],
+              "oauth2_client": []
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

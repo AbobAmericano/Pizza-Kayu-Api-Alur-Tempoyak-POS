@@ -28,7 +28,15 @@ Kotlin and Jetpack Compose.
   (a cashier gets an "Owner approval" pad). Cashiers can still mark items sold out.
 - **Adaptive layout** – on a phone the cart slides up as a bottom sheet with bottom navigation; on a
   tablet you get a navigation rail and a permanent cart panel.
-- **Offline first** – no internet permission. Everything is stored in a local database on the device.
+- **Offline-first register** – orders, the menu and settings live in a local Room database. FireLord
+  and Firebase sync are optional add-ons used only when the owner connects them.
+- **Customer ordering web app (`/web`)** – a mobile-first React + Vite + Tailwind + Firebase web app
+  where customers browse the live menu, customise pizzas, place pickup orders, and track status in
+  real time at `/order/:orderId`.
+- **Firebase Cloud Firestore** – the Android tablet listens to `online_orders` in real time, moves
+  orders through the same kitchen workflow, saves paid web orders locally as `#W...`, and publishes
+  menu/price/sold-out changes back to the web. All money is stored in whole sen (`Long`) to match
+  `Money.kt`.
 
 Pizza sizes are 10" (RM20), 11" (RM25) and 12" (RM30). Only 4in1, Beef Pepperoni, Chicken Pepperoni,
 Smoke Beef and Smoke Duck come in 12", with Smoke Beef and Smoke Duck at RM40. Extra cheese is RM3.
@@ -112,6 +120,76 @@ collected**. The same buttons are on FireLord's web board, so either can be used
 Release builds only connect over `https://`. Debug builds also allow `http://`, e.g.
 `http://10.0.2.2:8000` to reach a FireLord running on the PC from the emulator.
 
+## Firebase customer web app (new)
+
+Pizza Kayu Api Dungun's customer ordering site lives in `web/`. It is a React + Vite + Tailwind
+app, ready for Firebase Hosting, and shares the exact menu and money rules with the tablet:
+
+- 13 pizzas, 6 sides, 6 drinks and 4 desserts from `SampleData.kt`, with the 13 bundled pizza
+  photos copied from `app/src/main/res/drawable-nodpi` into `web/public/images`.
+- Sizes 10" (RM20), 11" (RM25), 12" (RM30; RM40 for Smoke Beef/Smoke Duck, and only for 4in1,
+  Beef Pepperoni, Chicken Pepperoni, Smoke Beef and Smoke Duck), Extra cheese RM3, item notes,
+  quantities, tax in basis points, and totals in whole sen.
+- Firestore `onSnapshot` listeners for live menu prices/availability, and `/order/:orderId`
+  tracking: Pending → Accepted → Preparing → In Oven → Ready for Pickup → Completed.
+- A web order appears on the tablet's **Online** tab immediately (badge + beep). Accept, Reject,
+  Start preparing, Into the oven, Ready for pickup, Paid cash/card and Cancel/Not collected all
+  write back to the same Firestore document. Paid orders are saved to the Room DB as `#W...` and
+  sent to the configured Bluetooth kitchen/receipt printer.
+
+### Firestore schema
+
+All amounts are whole sen (`Long`), not floats. Timestamps are Firestore Timestamps.
+
+| Collection / doc | Fields | Writes |
+| --- | --- | --- |
+| `menus/{itemId}` | `id, name, description, emoji, imageKey, category, priceSen, available, isPizza, twelveInchAvailable, twelveInchDeltaSen, sortIndex, updatedAt` | Admin only |
+| `toppings/{toppingId}` | `id, label, emoji, priceSen` | Admin only |
+| `settings/general` | `shopName, currency, phone, taxBasisPoints, ...` | Admin only |
+| `counters/online_orders` | `next` (Int) | Narrow public increment |
+| `online_orders/{orderId}` | `orderNumber, label, status, createdAt, updatedAt, orderType, customerUid, customerName, customerPhone, note, pickupTime, subtotalSen, taxSen, totalSen, taxBasisPoints, payment, cancelReason, statusHistory, items[]` | Public create, admin status updates |
+
+`items[]` mirrors the POS `CartLine` (including display-label toppings, `sizeLabel` and per-item
+`note`). `firestore.rules` validates `customerName`, `customerPhone`, `items` and `totalSen` on
+creation, keeps the customer's identity/items/total immutable afterwards, and only lets an admin
+move status. Customers sign in anonymously (no password) so they can read only their own order.
+
+### Set up Firebase
+
+1. Create a Firebase project, add a **Web app** and an **Android app** with package
+   `com.slicehouse.pos`. Enable **Cloud Firestore**, **Authentication → Anonymous** and
+   **Authentication → Email/Password**.
+2. Replace `your-firebase-project-id` in `.firebaserc` with your project id.
+3. Copy `web/.env.example` to `web/.env.local` and fill in the `VITE_FIREBASE_*` values from the
+   web app's config. Do not commit `.env.local`.
+4. Copy `app/google-services.example.json` to `app/google-services.json` and replace all
+   placeholders with the Android app's real config. This file is gitignored; the Gradle plugin
+   is applied only when it exists, so a fresh clone still builds without it.
+5. Deploy the rules and indexes: `firebase deploy --only firestore` (or
+   `firebase emulators:start --only firestore` for local testing).
+6. Seed the menu. Either install a service account key in `web/service-account.json` and run
+   `cd web && npm run seed`, or open the site's `/admin` page and use the seed button after
+   signing in with an admin account. Menu edits and sold-out switches made on the tablet also
+   publish automatically.
+7. Give your owner account the admin claim (needed for status updates, menu writes and to see
+   the live order list on the tablet):
+
+   ```bash
+   cd web
+   GOOGLE_APPLICATION_CREDENTIALS=./service-account.json npm run admin:claim -- owner@example.com
+   ```
+
+   Create that email/password user in Firebase Authentication first. On the tablet open
+   **Settings → Firebase web orders** and sign in with it, then sign out and back in once more
+   if the claim was added while already signed in.
+8. Build and deploy the site: `cd web && npm run build`, then `firebase deploy --only hosting`.
+   `firebase.json` publishes `web/dist` with SPA rewrites so `/order/:id` works on refresh.
+
+The legacy FireLord REST sync can stay connected at the same time: the Online tab merges both
+sources, and Firestore orders take precedence on id collisions. Without any Firebase config the
+Android app still builds and works exactly as before; the web app shows the sample menu but
+disables checkout.
+
 ## Bluetooth printer setup
 
 1. Pair the printer in **Android Settings → Bluetooth** first (default PIN is usually `0000` or
@@ -126,7 +204,9 @@ compatible thermal printers. It does not use the internet or any cloud service.
 
 ## Build from source
 
-Requirements: JDK 17 and Android SDK Platform 35 + Build-Tools 35.
+Requirements: JDK 17 and Android SDK Platform 35 + Build-Tools 35. The Firebase plugin is
+applied only when `app/google-services.json` exists, so the build also works without Firebase
+credentials.
 
 ```bash
 # Windows
@@ -157,7 +237,8 @@ app/src/main/java/com/slicehouse/pos/
     LegacyImport.kt        One-time import of the v1.4 JSON file
     MenuMaster.kt          Where menu edits go while connected to FireLord
     db/                    Room database: tables, queries and converters
-    sync/                  FireLord connection: API client (OkHttp), JSON shapes, SyncManager
+    sync/                  FireLord REST client (OkHttp), JSON shapes, SyncManager and
+                           FirebaseSyncManager (Firestore web orders + menu publishing)
   print/
     BluetoothPrinter.kt    Bluetooth SPP connection to the thermal printer
     ReceiptPrinter.kt      ESC/POS receipt builder for 58/80 mm paper
@@ -173,19 +254,31 @@ app/src/main/java/com/slicehouse/pos/
     OrdersScreen.kt        Sales stats + order history
     MenuScreen.kt          Menu and topping management
     MenuImages.kt          Bundled pizza photos and photo picker options
-    SettingsScreen.kt      Shop configuration, theme and printer
+    SettingsScreen.kt      Shop configuration, Firebase admin sign-in, theme and printer
+    FirebaseViewModel.kt   Firebase admin sign-in state
     Components.kt          Shared cards, receipt and formatting
     theme/Theme.kt         Light and dark colour schemes
+
+web/                       Customer ordering app (React + Vite + Tailwind + Firebase Web SDK)
+  src/data/menu.js         Menu copied from SampleData.kt, photos and size rules
+  src/lib/                 Whole-sen money helpers and cart/status logic
+  src/components/          Menu, native-dialog customizer, cart, checkout, tracker, admin seed
+  public/images/           The 13 bundled pizza photos
+  scripts/                 Firestore seed and admin-claim helpers (Admin SDK)
+firebase.json              Firebase Hosting (web/dist) + Firestore rules/indexes
+firestore.rules            Public order creation, private tracking, admin-only writes
+.firebaserc                Replace the placeholder with your Firebase project id
 ```
 
 ## Data & privacy
 
-The app requests Bluetooth permissions for the receipt printer, and internet access, which is used
-only after the owner connects it to FireLord. Orders,
-the menu and settings live in a Room (SQLite) database, `pizza_pos.db`, inside the app's private
-storage. Each save is all-or-nothing, so a crash or power cut can't leave half an order behind.
-Money is stored as whole sen, so totals never drift. Uninstalling the app removes the data, so back
-up the device if it matters.
+The app requests Bluetooth permissions for the receipt printer, and internet access for the
+optional FireLord / Firebase sync. Orders, the menu and settings live in a Room (SQLite)
+database, `pizza_pos.db`, inside the app's private storage. Each save is all-or-nothing, so a
+crash or power cut can't leave half an order behind. Money is stored as whole sen, so totals
+never drift. Web orders in Cloud Firestore contain the customer's name, phone, items and notes
+and are readable only by that customer (anonymous Auth UID) or an admin; do not put card numbers
+in order notes. Uninstalling the app removes local data, so back up the device if it matters.
 
 Upgrading from v1.4: on first launch the app imports the old `slicehouse_pos.json` and renames it to
 `slicehouse_pos.imported.json` (it is never deleted). If the old file can't be read, it is left

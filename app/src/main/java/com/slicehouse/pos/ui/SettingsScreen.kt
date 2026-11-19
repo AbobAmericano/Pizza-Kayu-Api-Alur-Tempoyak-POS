@@ -64,9 +64,11 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     viewModel: SettingsViewModel = viewModel(factory = PosViewModelFactory),
     authViewModel: AuthViewModel = viewModel(factory = PosViewModelFactory),
-    syncViewModel: SyncViewModel = viewModel(factory = PosViewModelFactory)
+    syncViewModel: SyncViewModel = viewModel(factory = PosViewModelFactory),
+    firebaseViewModel: FirebaseViewModel = viewModel(factory = PosViewModelFactory)
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val firebaseState by firebaseViewModel.state.collectAsStateWithLifecycle()
     val sync by syncViewModel.status.collectAsStateWithLifecycle()
     val connecting by syncViewModel.connecting.collectAsStateWithLifecycle()
     val auth by authViewModel.state.collectAsStateWithLifecycle()
@@ -94,6 +96,8 @@ fun SettingsScreen(
     var showPrinterDialog by remember { mutableStateOf(false) }
     var testingPrint by remember { mutableStateOf(false) }
     var pendingBluetoothAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var firebaseEmail by remember { mutableStateOf("") }
+    var firebasePassword by remember { mutableStateOf("") }
 
     val tax = parsePercent(taxText)
     val valid = shopName.isNotBlank() && currency.isNotBlank() && tax != null
@@ -228,6 +232,55 @@ fun SettingsScreen(
                     onSyncNow = syncViewModel::syncNow,
                     onDisconnect = syncViewModel::disconnect
                 )
+            }
+
+            SettingsCard(title = "Firebase web orders", emoji = "🌐") {
+                if (!firebaseViewModel.configured) {
+                    Text(
+                        "Add app/google-services.json and rebuild to receive orders from the customer web app in real time.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text(
+                        if (firebaseState.admin) "Admin connected${firebaseState.email.takeIf { it.isNotBlank() }?.let { " as $it" }.orEmpty()}. Menu edits and sold-out switches reach the web app immediately."
+                        else "Sign in with the Firebase admin account to update statuses and publish the menu.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    if (!firebaseState.admin) {
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = firebaseEmail,
+                            onValueChange = { firebaseEmail = it },
+                            label = { Text("Admin email") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = firebasePassword,
+                            onValueChange = { firebasePassword = it },
+                            label = { Text("Password") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Button(onClick = {
+                            firebaseViewModel.signIn(firebaseEmail, firebasePassword) { problem ->
+                                Toast.makeText(context, problem ?: "Signed in as admin", Toast.LENGTH_LONG).show()
+                            }
+                        }) { Text("Sign in to Firebase") }
+                    } else {
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(onClick = { firebaseViewModel.signOut() }) { Text("Sign out") }
+                    }
+                    firebaseState.message?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
+                }
             }
 
             Spacer(Modifier.height(14.dp))

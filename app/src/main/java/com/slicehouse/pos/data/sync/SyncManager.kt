@@ -75,7 +75,9 @@ class SyncManager(
     private val api: PosApi = PosApi(),
     private val allowHttp: Boolean = false,
     private val deviceName: String = "Tablet",
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = System::currentTimeMillis,
+    /** Optional Cloud Firestore channel for the customer web app. Null when Firebase isn't configured. */
+    private val firebase: FirebaseSyncManager? = null
 ) : MenuMaster {
 
     private data class Connection(val server: HttpUrl, val key: String)
@@ -108,6 +110,18 @@ class SyncManager(
     private var waitingSeen: Set<String>? = null
     private val onlineMutex = Mutex()
 
+    /** The two sources are merged so the Online tab works with either or both. */
+    @Volatile
+    private var restOrders: List<OnlineOrderDto> = emptyList()
+    @Volatile
+    private var firestoreOrders: List<OnlineOrderDto> = emptyList()
+    @Volatile
+    private var firestoreLoaded = false
+
+    /** Optional: triggered after a successful kitchen/receipt print of a web order. */
+    var onOnlineKitchenTicket: (OnlineOrderDto) -> Unit = {}
+    var onOnlineReceipt: (OnlineOrderDto, String) -> Unit = { _, _ -> }
+
     init {
         scope.launch {
             runCatching { load() }
@@ -116,6 +130,16 @@ class SyncManager(
         }
         scope.launch { dao.waitingToUpload().collect { n -> _status.update { it.copy(waiting = n) } } }
         scope.launch { dao.rejectedUploads().collect { n -> _status.update { it.copy(rejected = n) } } }
+        if (firebase != null) {
+            firebase.onNewPendingOrder = { onNewOnlineOrder() }
+            scope.launch {
+                firebase.orders.collect { orders ->
+                    firestoreOrders = orders
+                    firestoreLoaded = true
+                    mergeOnline()
+                }
+            }
+        }
     }
 
     // ---------------------------------------------------------------- connect
@@ -175,7 +199,8 @@ class SyncManager(
             pendingAvailability.clear()
             listOf(KEY_DEVICE_KEY, KEY_SHOP, KEY_MENU_VERSION, KEY_PENDING_AVAILABILITY).forEach { dao.deleteMeta(it) }
             _status.update { it.copy(connected = false, shopName = "", error = null, revoked = false) }
-            _onlineOrders.value = OnlineOrders()
+            restOrders = emptyList()
+            mergeOnline()
             waitingSeen = null
         }
     }
@@ -239,10 +264,14 @@ class SyncManager(
 
     // ---------------------------------------------------------- online orders
 
-    /** Refreshes [onlineOrders] every [intervalMillis] while connected. Runs until cancelled. */
+    /** Refreshes FireLord orders every [intervalMillis]; Firestore orders arrive via its listener. */
     suspend fun runOnlineEvery(intervalMillis: Long = ONLINE_INTERVAL_MILLIS) {
         while (true) {
-            if (connection != null) refreshOnline() else _onlineOrders.value = OnlineOrders()
+            if (connection != null) refreshOnline()
+            else {
+                restOrders = emptyList()
+                mergeOnline()
+            }
             delay(intervalMillis)
         }
     }
@@ -257,7 +286,8 @@ class SyncManager(
                 val seen = waitingSeen
                 if (seen != null && (waiting - seen).isNotEmpty()) onNewOnlineOrder()
                 waitingSeen = waiting
-                _onlineOrders.value = OnlineOrders(orders = orders, loaded = true)
+                restOrders = orders
+                mergeOnline()
                 true
             } catch (e: ApiException) {
                 if (e is ApiException.Unauthorized) failed(e)
@@ -269,10 +299,22 @@ class SyncManager(
         }
     }
 
+    /** Firestore orders win on id collisions; otherwise both channels are shown. */
+    private fun mergeOnline() {
+        val firestoreIds = firestoreOrders.map { it.id }.toSet()
+        val merged = (firestoreOrders + restOrders.filterNot { it.id in firestoreIds })
+            .sortedWith(compareBy({ if (it.status == "PENDING") 0 else 1 }, { it.pickupTime }))
+        _onlineOrders.value = OnlineOrders(
+            orders = merged,
+            loaded = firestoreLoaded || restOrders.isNotEmpty(),
+            error = _onlineOrders.value.error
+        )
+    }
+
     /**
-     * Moves an online order on (see FireLord's pos/online.py for which moves are allowed).
-     * COMPLETED needs [payment] ("CASH" or "CARD") and also saves the sale on this tablet.
-     * Returns null when done, or what went wrong.
+     * Moves an online order on. Firestore orders go to Cloud Firestore; older
+     * FireLord orders keep the REST path. COMPLETED needs [payment] ("CASH" or
+     * "CARD") and saves the sale on this tablet (Room DB, with a #W label).
      */
     suspend fun setOnlineStatus(
         order: OnlineOrderDto,
@@ -282,10 +324,17 @@ class SyncManager(
         reason: String = ""
     ): String? {
         ready.await()
+        val isFirestoreOrder = firebase?.isFirestoreOrder(order.id) == true
+        if (isFirestoreOrder) {
+            val client = firebase ?: return "Firebase isn't configured on this tablet."
+            val problem = client.updateStatus(order, status, payment, by, reason)
+            if (problem == null) afterOnlineStatusChange(order, status, payment, by)
+            return problem
+        }
         val conn = connection ?: return "This tablet isn't connected to FireLord."
         val problem = try {
             val updated = api.setOnlineStatus(conn.server, conn.key, order.id, StatusUpload(status, payment, by.take(60), reason))
-            if (updated.status == "COMPLETED") store.recordOnlineSale(updated.toOrder(clock()).copy(takenBy = by))
+            afterOnlineStatusChange(updated, status, payment, by)
             null
         } catch (e: ApiException.Offline) {
             "No internet. The order wasn't changed."
@@ -297,12 +346,27 @@ class SyncManager(
         return problem
     }
 
+    /** Saves paid orders locally and sends kitchen/receipt tickets to the Bluetooth printer. */
+    private fun afterOnlineStatusChange(order: OnlineOrderDto, status: String, payment: String, by: String) {
+        when (status) {
+            "RECEIVED" -> runCatching { onOnlineKitchenTicket(order) }
+            "COMPLETED" -> {
+                store.recordOnlineSale(order.copy(status = status, payment = payment).toOrder(clock()).copy(takenBy = by))
+                runCatching { onOnlineReceipt(order.copy(payment = payment), payment) }
+            }
+        }
+    }
+
     // ------------------------------------------------------------------- menu
 
     override val isConnected: Boolean get() = connection != null
 
     override suspend fun publish(menu: List<MenuItem>, toppings: List<Topping>): MenuChange {
         ready.await()
+        if (connection == null && firebase != null) {
+            val problem = publishMenuToFirebase()
+            return if (problem == null) MenuChange.Saved else MenuChange.Failed(problem)
+        }
         return mutex.withLock {
             val conn = connection ?: return@withLock MenuChange.Failed("Not connected to FireLord")
             try {
@@ -314,6 +378,7 @@ class SyncManager(
                 pendingAvailability.clear() // the new menu carries the current sold-out switches
                 savePendingAvailability()
                 applyMenu(answer)
+                publishMenuToFirebase()
                 MenuChange.Saved
             } catch (e: ApiException.Conflict) {
                 runCatching { applyMenu(api.menu(conn.server, conn.key, menuVersion)) }
@@ -331,12 +396,28 @@ class SyncManager(
         scope.launch {
             ready.await()
             mutex.withLock {
-                if (connection == null) return@withLock
-                pendingAvailability[itemId] = available
-                savePendingAvailability()
+                if (connection != null) {
+                    pendingAvailability[itemId] = available
+                    savePendingAvailability()
+                }
             }
+            // Always mirror sold-out switches to the web app, even without FireLord.
+            publishMenuToFirebase()
             requestSync()
         }
+    }
+
+    /** Best-effort mirror of POS menu edits / sold-out switches to the customer web app. */
+    private suspend fun publishMenuToFirebase(): String? {
+        val client = firebase ?: return null
+        val state = store.state.value
+        return client.publishMenu(
+            items = state.menu,
+            toppings = state.toppings,
+            taxBasisPoints = state.settings.taxBasisPoints,
+            shopName = state.settings.shopName,
+            currency = state.settings.currency
+        )
     }
 
     private suspend fun syncMenu(conn: Connection) {

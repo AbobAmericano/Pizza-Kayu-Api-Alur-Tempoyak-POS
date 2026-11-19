@@ -1,0 +1,114 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Admin POS devices sign in with a Firebase Auth account carrying the custom claim
+    // { admin: true }, granted with `cd web && npm run admin:claim -- owner@example.com`.
+    function isAdmin() {
+      return signedIn() && request.auth.token.admin == true;
+    }
+
+    function validSen(value) {
+      return value is int && value >= 0 && value <= 100000000;
+    }
+
+    function nonEmptyText(value, maxLength) {
+      return value is string && value.size() > 0 && value.size() <= maxLength;
+    }
+
+    match /menus/{itemId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /toppings/{toppingId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /settings/{documentId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Public (anonymous Auth) order-number allocation. Narrowly checked so a
+    // customer cannot jump the sequence or add fields to the counter document.
+    match /counters/{counterId} {
+      allow read: if true;
+      allow create: if counterId == 'online_orders'
+                    && request.resource.data.keys().hasOnly(['next'])
+                    && request.resource.data.next == 1;
+      allow update: if counterId == 'online_orders'
+                    && request.resource.data.keys().hasOnly(['next'])
+                    && resource.data.keys().hasOnly(['next'])
+                    && request.resource.data.next == resource.data.next + 1;
+      allow delete: if isAdmin();
+    }
+
+    match /online_orders/{orderId} {
+      // Anyone can place an order with anonymous Auth; customers can only read their own.
+      allow get: if isAdmin() || (signedIn() && resource.data.customerUid == request.auth.uid);
+      allow list: if isAdmin();
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+             'orderNumber', 'label', 'status', 'createdAt', 'updatedAt',
+             'orderType', 'customerUid', 'customerName', 'customerPhone',
+             'note', 'pickupTime', 'pickupAt', 'subtotalSen', 'taxSen',
+             'totalSen', 'taxBasisPoints', 'payment', 'cancelReason',
+             'statusHistory', 'items'
+           ])
+        && request.resource.data.orderNumber is int
+        && request.resource.data.orderNumber > 0
+        && request.resource.data.label is string
+        && request.resource.data.status == 'PENDING'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.orderType in ['TAKEAWAY', 'DINE_IN', 'DELIVERY']
+        && request.resource.data.customerUid == request.auth.uid
+        && nonEmptyText(request.resource.data.customerName, 80)
+        && nonEmptyText(request.resource.data.customerPhone, 20)
+        && request.resource.data.customerPhone.matches('^[0-9+ -]{8,20}$')
+        && request.resource.data.note is string
+        && request.resource.data.note.size() <= 300
+        && nonEmptyText(request.resource.data.pickupTime, 20)
+        && validSen(request.resource.data.subtotalSen)
+        && validSen(request.resource.data.taxSen)
+        && validSen(request.resource.data.totalSen)
+        && request.resource.data.totalSen == request.resource.data.subtotalSen + request.resource.data.taxSen
+        && request.resource.data.taxBasisPoints is int
+        && request.resource.data.taxBasisPoints >= 0
+        && request.resource.data.taxBasisPoints <= 10000
+        && request.resource.data.payment == ''
+        && request.resource.data.cancelReason == ''
+        && request.resource.data.statusHistory is list
+        && request.resource.data.statusHistory.size() == 1
+        && request.resource.data.items is list
+        && request.resource.data.items.size() >= 1
+        && request.resource.data.items.size() <= 30;
+
+      // Staff move the order through its lifecycle. They may only change status
+      // fields; the customer's name, phone, items and total are immutable.
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'status', 'updatedAt', 'payment', 'cancelReason', 'statusHistory', 'pickedUpBy'
+           ])
+        && request.resource.data.status in ['RECEIVED', 'PREPARING', 'BAKING', 'READY', 'COMPLETED', 'CANCELLED']
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.customerName == resource.data.customerName
+        && request.resource.data.customerPhone == resource.data.customerPhone
+        && request.resource.data.items == resource.data.items
+        && request.resource.data.totalSen == resource.data.totalSen
+        && request.resource.data.customerUid == resource.data.customerUid
+        && request.resource.data.statusHistory is list
+        && request.resource.data.statusHistory.size() == resource.data.statusHistory.size() + 1;
+
+      allow delete: if isAdmin();
+    }
+  }
+}

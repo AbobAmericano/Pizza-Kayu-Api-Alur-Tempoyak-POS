@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --target-size: 24px;
+}
+
+@media (pointer: coarse) {
+  :root { --target-size: 44px; }
+}
+
+html {
+  /* Keeps focused controls clear of the fixed mobile cart bar. */
+  scroll-padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+body {
+  @apply bg-ember-50 text-charcoal antialiased;
+  overflow-wrap: break-word;
+  min-block-size: 100dvh;
+}
+
+:where(button, select, textarea, input:not([type='checkbox'], [type='radio']), a.button, label.choice) {
+  min-block-size: var(--target-size);
+  min-inline-size: var(--target-size);
+  font-size: max(1rem, 1em);
+}
+
+:where(button, a, input, select, textarea):focus-visible {
+  outline: 3px solid #e8620c;
+  outline-offset: 2px;
+}
+
+h1, h2, h3 { text-wrap: balance; }
+p, li { text-wrap: pretty; }
+
+img { max-inline-size: 100%; block-size: auto; }
+
+.visually-hidden:where(:not(:focus-within, :active)) {
+  position: absolute !important;
+  clip-path: inset(50%) !important;
+  overflow: hidden !important;
+  inline-size: 1px !important;
+  block-size: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  white-space: nowrap !important;
+}
+
+.skip-link:focus {
+  position: fixed;
+  inset-block-start: max(0.75rem, env(safe-area-inset-top, 0px));
+  inset-inline-start: 0.75rem;
+  z-index: 60;
+  inline-size: auto;
+  block-size: auto;
+  clip-path: none;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background: #fff;
+  color: #5a210c;
+  font-weight: 700;
+}
+
+/* Native modal: the browser handles focus containment, Esc/back dismissal and the top layer. */
+dialog:modal { overscroll-behavior: contain; }
+dialog::backdrop {
+  background: rgb(36 24 18 / 65%);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+dialog[open] { display: block; }
+.item-dialog {
+  inline-size: min(34rem, calc(100vw - 1.5rem));
+  max-block-size: min(90dvh, 52rem);
+  padding: 0;
+  border: 0;
+  border-radius: 1.25rem;
+  background: #fff;
+  box-shadow: 0 24px 70px rgb(36 24 18 / 30%);
+  color: #241812;
+  overflow-y: auto;
+}
+
+:is(:user-invalid, .user-invalid-fallback) {
+  border-color: #b42318;
+  background-color: #fff5f3;
+}
+:is(:user-invalid, .user-invalid-fallback) + .error-msg { display: block; }
+.error-msg { display: none; color: #b42318; font-size: 0.8125rem; }
+
+.field { display: flex; flex-direction: column; align-items: stretch; gap: 0.3rem; }
+.field label { font-weight: 600; font-size: 0.9rem; }
+.field input, .field select, .field textarea {
+  inline-size: 100%;
+  min-block-size: 48px;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid #767676;
+  border-radius: 0.7rem;
+  background: #fff;
+}
+.field textarea { min-block-size: 5.5rem; resize: vertical; }
+@media (pointer: coarse) {
+  .field input, .field select, .field textarea { min-block-size: 52px; }
+}
+
+/* Component-driven layout: the menu grid adapts wherever it is placed. */
+.menu-grid { container: menu / inline-size; display: grid; gap: 1rem; grid-template-columns: 1fr; }
+@container menu (inline-size > 36rem) { .menu-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container menu (inline-size > 62rem) { .menu-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+.bottom-bar {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+  padding-left: max(0.75rem, env(safe-area-inset-left, 0px));
+  padding-right: max(0.75rem, env(safe-area-inset-right, 0px));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

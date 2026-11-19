@@ -78,8 +78,8 @@ fun OnlineScreen(
         }
 
         when {
-            !status.connected -> Message(
-                "Connect this tablet to FireLord to receive online orders.",
+            !status.connected && online.orders.isEmpty() -> Message(
+                "No live order channel yet. Connect to FireLord or sign in as the Firebase admin in Settings to receive web orders.",
                 button = "Open Settings",
                 onClick = onGoToSettings
             )
